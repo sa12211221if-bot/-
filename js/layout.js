@@ -1,6 +1,5 @@
-// Designer OS — Command Center Shell
-// New IA: 9 primary destinations + persistent topbar (clock, date, mode, search, avatar)
-// Mobile gets a bottom nav with 5 essential items.
+// Designer OS — Command Center Shell (v3)
+// Adds: tips nav, prayer countdown widget in topbar, notifications panel
 
 import { el } from './utils.js';
 import { icon } from './icons.js';
@@ -10,8 +9,9 @@ import { getState, sel, subscribe } from './store.js';
 import { applyAccent } from './ui.js';
 import { MODES, MODE_LIST, activateMode, currentMode, cycleMode } from './modes.js';
 import { openCapture, bindCaptureHotkey } from './capture.js';
+import { nextPrayer, fmtCountdown } from './prayerTimes.js';
 
-// New navigation: 9 grouped items
+// Navigation: 10 items (added /tips)
 const NAV_ITEMS = [
   { path: '/',          key: 'command_center', icon: 'dashboard' },
   { path: '/tasks',     key: 'nav_tasks',      icon: 'check_circle' },
@@ -21,19 +21,20 @@ const NAV_ITEMS = [
   { path: '/habits',    key: 'nav_habits',     icon: 'flame' },
   { path: '/reviews',   key: 'nav_reviews',    icon: 'bookmark' },
   { path: '/assistant', key: 'nav_assistant',  icon: 'zap', accent: true },
+  { path: '/tips',      key: 'nav_tips',       icon: 'info' },
   { path: '/settings',  key: 'nav_settings',   icon: 'settings' }
 ];
 
-// Bottom-nav (mobile) — 5 essentials with Capture in middle as accent
 const MOBILE_NAV = [
   { path: '/',          key: 'command_center', icon: 'dashboard' },
   { path: '/tasks',     key: 'nav_tasks',      icon: 'check_circle' },
   { capture: true,                              icon: 'plus' },
-  { path: '/knowledge', key: 'nav_knowledge',  icon: 'database' },
-  { path: '/assistant', key: 'nav_assistant',  icon: 'zap' }
+  { path: '/assistant', key: 'nav_assistant',  icon: 'zap' },
+  { path: '/settings',  key: 'nav_settings',   icon: 'settings' }
 ];
 
 let clockTimer = null;
+let prayerTimer = null;
 
 export function buildShell() {
   const app = document.getElementById('app');
@@ -75,17 +76,15 @@ export function buildShell() {
     scrim.classList.remove('show');
   });
 
-  // Reactive badges + mode-pill
   subscribe(() => {
     updateBadges(sidebar);
     const pill = topbar.querySelector('.mode-pill');
     if (pill) refreshModePill(pill);
+    refreshPrayerWidget(topbar);
   });
   updateBadges(sidebar);
 
-  // Cmd/Ctrl+K → capture
   bindCaptureHotkey();
-  // M → cycle mode
   document.addEventListener('keydown', (e) => {
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -94,8 +93,8 @@ export function buildShell() {
     }
   });
 
-  // Boot clock
   startClock(topbar);
+  startPrayerWidget(topbar);
 
   return { app, outlet, sidebar, topbar };
 }
@@ -129,7 +128,6 @@ function buildSidebar(scrim) {
   });
   aside.appendChild(nav);
 
-  // Footer: capture button + lang
   const footer = el('div', { class: 'sidebar__footer' });
   const captureBtn = el('button', { class: 'btn btn--block sidebar__capture-btn', onClick: () => openCapture() });
   captureBtn.innerHTML = icon('plus') + ' ' + t('capture') + ' <kbd>⌘K</kbd>';
@@ -149,7 +147,6 @@ function buildSidebar(scrim) {
 function buildTopbar(sidebar, scrim) {
   const bar = el('header', { class: 'topbar' });
 
-  // Mobile menu
   const menuBtn = el('button', {
     class: 'btn btn--icon btn--ghost menu-btn',
     onClick: () => { sidebar.classList.add('open'); scrim.classList.add('show'); }
@@ -167,10 +164,17 @@ function buildTopbar(sidebar, scrim) {
   sidebar.querySelector('.sidebar__brand').appendChild(closeBtn);
   bar.appendChild(menuBtn);
 
-  // Title (page title)
   bar.appendChild(el('h1', { class: 'topbar__title' }, t('command_center')));
 
-  // Clock + date (centered area)
+  // Prayer countdown widget (only when prayer times configured)
+  const prayerWidget = el('button', {
+    class: 'topbar__prayer hidden',
+    onClick: () => navigate('/settings', { section: 'prayer' }),
+    title: t('prayer_times')
+  });
+  bar.appendChild(prayerWidget);
+
+  // Clock
   const clockBox = el('div', { class: 'topbar__clock' });
   clockBox.innerHTML = `
     <span class="topbar__clock-time" id="clock-time">--:--</span>
@@ -184,15 +188,15 @@ function buildTopbar(sidebar, scrim) {
   const pill = buildModePill();
   bar.appendChild(pill);
 
-  // Quick capture button
+  // Capture button
   const captureBtn = el('button', { class: 'btn btn--primary topbar__capture', onClick: () => openCapture() });
   captureBtn.innerHTML = icon('plus') + ' <span class="topbar__capture-label">' + t('capture') + '</span>';
   bar.appendChild(captureBtn);
 
   // Notifications
-  const overdue = sel.overdueTasks().length;
-  const notifBtn = el('button', { class: 'btn btn--icon btn--ghost', title: t('insights'), onClick: () => navigate('/assistant') });
+  const notifBtn = el('button', { class: 'btn btn--icon btn--ghost', title: t('notifications'), onClick: () => navigate('/assistant') });
   notifBtn.innerHTML = icon('bell');
+  const overdue = sel.overdueTasks().length;
   if (overdue > 0) {
     notifBtn.style.position = 'relative';
     notifBtn.appendChild(el('span', { class: 'notif-dot' }));
@@ -220,7 +224,6 @@ function refreshModePill(pill) {
 }
 
 function openModeMenu() {
-  // Close existing menu if any
   const existing = document.querySelector('.mode-menu');
   if (existing) { existing.remove(); return; }
   const menu = el('div', { class: 'mode-menu glass' });
@@ -240,7 +243,6 @@ function openModeMenu() {
     `;
     menu.appendChild(item);
   });
-  // Position near the pill
   const pill = document.querySelector('.mode-pill');
   if (!pill) return;
   document.body.appendChild(menu);
@@ -250,7 +252,6 @@ function openModeMenu() {
   if (isRTL()) menu.style.right = (window.innerWidth - r.right) + 'px';
   else menu.style.left = r.left + 'px';
   menu.style.zIndex = 200;
-  // Click-away
   setTimeout(() => {
     document.addEventListener('click', function close(e) {
       if (!menu.contains(e.target) && !pill.contains(e.target)) {
@@ -287,6 +288,7 @@ function updateBadges(sidebar) {
   const today = sel.todayTasks().length;
   const inboxCount = (getState().knowledge || []).filter((k) => (k.category || 'inbox') === 'inbox').length;
   const suggestions = sel.activeSuggestions().length;
+  const pendingChallenges = (getState().challenges || []).filter((c) => c.status === 'pending' || c.status === 'active').length;
   sidebar.querySelectorAll('.nav-link').forEach((link) => {
     const key = link.dataset.path;
     let count = 0;
@@ -320,13 +322,45 @@ function startClock(topbar) {
   clockTimer = setInterval(tick, 30 * 1000);
 }
 
+// ============================================================
+// Prayer countdown widget in topbar
+// ============================================================
+function refreshPrayerWidget(topbar) {
+  const widget = topbar.querySelector('.topbar__prayer');
+  if (!widget) return;
+  const np = nextPrayer();
+  const state = getState();
+  // Show when prayer is configured (Islamic mode highlights it more)
+  const configured = state.prayerCity || state.prayerLat;
+  if (!configured || !np) {
+    widget.classList.add('hidden');
+    return;
+  }
+  widget.classList.remove('hidden');
+  const isIslamic = state.mode === 'islamic';
+  if (isIslamic) widget.classList.add('topbar__prayer--islamic');
+  else widget.classList.remove('topbar__prayer--islamic');
+
+  if (np.passed) {
+    widget.innerHTML = `<span class="topbar__prayer-icon">🕌</span><span class="topbar__prayer-name">${t(np.name.toLowerCase())}</span><span class="topbar__prayer-time text-sm text-muted">${np.time}</span>`;
+  } else {
+    widget.innerHTML = `<span class="topbar__prayer-icon">🕌</span><span class="topbar__prayer-name">${t(np.name.toLowerCase())}</span><span class="topbar__prayer-countdown font-mono">${fmtCountdown(np.msUntil)}</span>`;
+  }
+}
+
+function startPrayerWidget(topbar) {
+  if (prayerTimer) clearInterval(prayerTimer);
+  refreshPrayerWidget(topbar);
+  // Update every second for smooth countdown
+  prayerTimer = setInterval(() => refreshPrayerWidget(topbar), 1000);
+}
+
 function toggleLang() {
   const next = getLang() === 'ar' ? 'en' : 'ar';
   setLang(next);
   setTimeout(() => location.reload(), 50);
 }
 
-// Legacy quick capture API (some pages may still call it)
 export function openQuickCapture() { openCapture(); }
 export function applyTheme() {
   const accent = getState().accent;

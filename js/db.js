@@ -1,11 +1,11 @@
 // Designer OS — IndexedDB layer (no external deps)
-// Stores: clients, projects, tasks, invoices, subscriptions, timeLogs,
-//         goals, ideas, focusSessions, settings, inbox
+// v3: adds chat, notifications, challenges, integrations
 
 const DB_NAME = 'designer-os';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORES = [
+  // v1
   { name: 'clients',       key: 'id', indexes: [['name', 'name']] },
   { name: 'projects',      key: 'id', indexes: [['clientId', 'clientId'], ['status', 'status'], ['dueDate', 'dueDate']] },
   { name: 'tasks',         key: 'id', indexes: [['projectId', 'projectId'], ['status', 'status'], ['dueDate', 'dueDate'], ['priority', 'priority']] },
@@ -19,15 +19,23 @@ const STORES = [
   { name: 'settings',      key: 'key' },
   { name: 'expenses',      key: 'id', indexes: [['date', 'date'], ['category', 'category']] },
 
-  // Personal Command Center additions (v2)
+  // v2
   { name: 'habits',        key: 'id', indexes: [['category', 'category'], ['createdAt', 'createdAt']] },
   { name: 'habitLogs',     key: 'id', indexes: [['habitId', 'habitId'], ['date', 'date']] },
   { name: 'reviews',       key: 'id', indexes: [['type', 'type'], ['date', 'date']] },
-  { name: 'knowledge',     key: 'id', indexes: [['category', 'category'], ['createdAt', 'createdAt']] }, // PARA: inbox|projects|areas|resources|archive
+  { name: 'knowledge',     key: 'id', indexes: [['category', 'category'], ['createdAt', 'createdAt']] },
   { name: 'areas',         key: 'id', indexes: [['name', 'name']] },
   { name: 'resources',     key: 'id', indexes: [['type', 'type'], ['createdAt', 'createdAt']] },
-  { name: 'vitals',        key: 'id', indexes: [['date', 'date']] }, // mental state logs
-  { name: 'aiSuggestions', key: 'id', indexes: [['createdAt', 'createdAt'], ['dismissed', 'dismissed']] }
+  { name: 'vitals',        key: 'id', indexes: [['date', 'date']] },
+  { name: 'aiSuggestions', key: 'id', indexes: [['createdAt', 'createdAt'], ['dismissed', 'dismissed']] },
+
+  // v3 — chat, notifications, challenges, integrations
+  { name: 'chatThreads',   key: 'id', indexes: [['updatedAt', 'updatedAt']] },
+  { name: 'chatMessages',  key: 'id', indexes: [['threadId', 'threadId'], ['createdAt', 'createdAt']] },
+  { name: 'notifications', key: 'id', indexes: [['scheduledAt', 'scheduledAt'], ['type', 'type'], ['delivered', 'delivered']] },
+  { name: 'challenges',    key: 'id', indexes: [['status', 'status'], ['createdAt', 'createdAt']] },
+  { name: 'rewards',       key: 'id', indexes: [['earnedAt', 'earnedAt']] },
+  { name: 'syncLog',       key: 'id', indexes: [['provider', 'provider'], ['createdAt', 'createdAt']] }
 ];
 
 let dbPromise = null;
@@ -109,6 +117,13 @@ export const db = {
   async clear(store) {
     const s = await tx(store, 'readwrite');
     return reqToPromise(s.clear());
+  },
+  async clearAll() {
+    for (const def of STORES) {
+      if (def.name === 'settings') continue;
+      const s = await tx(def.name, 'readwrite');
+      await reqToPromise(s.clear());
+    }
   },
   async query(store, indexName, range) {
     const s = await tx(store);

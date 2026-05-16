@@ -1,5 +1,6 @@
-// Designer OS — Command Center (Dashboard redesigned)
-// One screen, one decision: "what should I do right now?"
+// Designer OS — Command Center (Dashboard v3)
+// Hero focus + Pulse + Vitals + AI suggestions + Daily summary
+// + Active challenge + Prayer countdown (Islamic mode) + Tips quick-strip
 
 import { el, fmtDuration } from '../utils.js';
 import { icon } from '../icons.js';
@@ -9,46 +10,120 @@ import { navigate } from '../router.js';
 import { generateSuggestions, generateDailySummary, applySuggestion } from '../ai.js';
 import { activateMode } from '../modes.js';
 import { openCapture } from '../capture.js';
+import { ensureDailyChallenge, acceptChallenge, completeChallenge, skipChallenge } from '../challenges.js';
+import { nextPrayer, fmtCountdown } from '../prayerTimes.js';
+
+let prayerCountdownTimer = null;
 
 export async function renderDashboard() {
   const state = getState();
   const root = el('div', { class: 'reveal' });
 
+  // Auto-suggest a challenge if none is active (fire and forget)
+  ensureDailyChallenge().catch(() => {});
+
   // ============================================================
-  // HERO FOCUS — the single most important thing right now
+  // PRAYER COUNTDOWN BAR (when Islamic mode + prayer times available)
+  // ============================================================
+  if (state.mode === 'islamic') {
+    root.appendChild(renderPrayerStrip());
+  }
+
+  // ============================================================
+  // HERO FOCUS
   // ============================================================
   root.appendChild(renderHero(state));
 
   // ============================================================
-  // TWO COLUMN: Left = Pulse + Today, Right = AI + Vitals
+  // ACTIVE CHALLENGE (full-width strip if pending or active)
+  // ============================================================
+  const challengeRow = renderChallengeRow();
+  if (challengeRow) root.appendChild(challengeRow);
+
+  // ============================================================
+  // TWO COLUMN
   // ============================================================
   const grid = el('div', { class: 'cc-grid' });
-
-  // LEFT COLUMN
   const left = el('div', {});
-
-  // Top 3 tasks (Pulse)
   left.appendChild(renderPulse());
-
-  // Today's vitals strip
   left.appendChild(renderVitals());
-
   grid.appendChild(left);
 
-  // RIGHT COLUMN
   const right = el('div', {});
-
-  // AI assistant card (top suggestions)
   right.appendChild(renderAssistant());
-
-  // Daily summary
   right.appendChild(renderSummary());
-
   grid.appendChild(right);
-
   root.appendChild(grid);
 
+  // ============================================================
+  // TIPS QUICK STRIP (full width, dismissable)
+  // ============================================================
+  root.appendChild(renderTipsStrip());
+
   return root;
+}
+
+// ============================================================
+// PRAYER COUNTDOWN STRIP (Islamic mode only)
+// ============================================================
+function renderPrayerStrip() {
+  const np = nextPrayer();
+  const ar = getLang() === 'ar';
+
+  if (!np) {
+    // Not configured yet
+    const wrap = el('div', { class: 'glass panel prayer-strip prayer-strip--empty' });
+    wrap.innerHTML = `
+      <div class="row justify-between items-center" style="gap:12px;">
+        <div class="row gap-12 items-center">
+          <span style="color:var(--accent-2)">${icon('star', { size: 20 })}</span>
+          <div>
+            <div style="font-weight:700;">${t('prayer_settings')}</div>
+            <div class="text-sm text-muted">${ar ? 'اضبط موقعك لتظهر مواقيت الصلاة' : 'Set your location to see prayer times'}</div>
+          </div>
+        </div>
+      </div>
+    `;
+    const btn = el('button', { class: 'btn btn--primary btn--sm', onClick: () => navigate('/settings', { section: 'prayer' }) });
+    btn.innerHTML = icon('settings') + ' ' + t('prayer_settings');
+    wrap.querySelector('.row').appendChild(btn);
+    return wrap;
+  }
+
+  const wrap = el('div', { class: 'glass panel prayer-strip' });
+  const refresh = () => {
+    const nowNp = nextPrayer();
+    if (!nowNp) return;
+    const ms = nowNp.msUntil;
+    const lbl = nowNp.passed
+      ? (ar ? 'صلاة الفجر غداً' : 'Tomorrow\'s Fajr')
+      : t('next_prayer') + ': ' + t(nowNp.name.toLowerCase());
+    wrap.innerHTML = `
+      <div class="row justify-between items-center" style="gap:12px;flex-wrap:wrap;">
+        <div class="row gap-12 items-center">
+          <span style="color:var(--accent-2);font-size:22px;">🕌</span>
+          <div>
+            <div style="font-weight:700;font-size:14px;">${lbl}</div>
+            <div class="text-sm text-muted">${nowNp.time || ''} · ${getState().prayerTimes?.location?.city || ''}</div>
+          </div>
+        </div>
+        <div class="row gap-8 items-center">
+          <div class="text-2xl font-mono" style="color:var(--accent-2);">${ms != null ? fmtCountdown(ms) : '—'}</div>
+          <span class="text-sm text-muted">${t('until_prayer')}</span>
+        </div>
+      </div>
+    `;
+  };
+  refresh();
+
+  // Update every second while visible
+  if (prayerCountdownTimer) clearInterval(prayerCountdownTimer);
+  prayerCountdownTimer = setInterval(() => {
+    if (!wrap.isConnected) { clearInterval(prayerCountdownTimer); prayerCountdownTimer = null; return; }
+    refresh();
+  }, 1000);
+
+  return wrap;
 }
 
 // ============================================================
@@ -60,7 +135,6 @@ function renderHero(state) {
   const greeting = greetingForHour(new Date().getHours());
 
   if (!candidate) {
-    // Empty state — no pending tasks. Encourage capture.
     const empty = el('div', { class: 'hero-focus hero-focus--empty' });
     empty.innerHTML = `
       <div class="hero-focus__label">${greeting} ✨</div>
@@ -114,10 +188,71 @@ function renderHero(state) {
 }
 
 // ============================================================
+// CHALLENGE ROW
+// ============================================================
+function renderChallengeRow() {
+  const ch = sel.activeChallenge();
+  const pending = getState().challenges.find((c) => c.status === 'pending');
+  const target = ch || pending;
+  if (!target) return null;
+
+  const ar = getLang() === 'ar';
+  const wrap = el('div', { class: 'glass panel challenge-strip' });
+  const isPending = target.status === 'pending';
+  const progress = Math.min(100, Math.round(((target.progress || 0) / Math.max(1, target.target)) * 100));
+
+  wrap.innerHTML = `
+    <div class="challenge-strip__head">
+      <div class="row gap-12 items-center">
+        <div class="challenge-strip__icon">${icon('flame', { size: 18 })}</div>
+        <div>
+          <div class="challenge-strip__label">${isPending ? t('challenge_pending') : t('challenge_active')}</div>
+          <div class="challenge-strip__title">${escapeHtml(target.title)}</div>
+          ${target.desc ? `<div class="text-sm text-muted">${escapeHtml(target.desc)}</div>` : ''}
+        </div>
+      </div>
+    </div>
+    ${!isPending ? `
+      <div class="challenge-strip__progress">
+        <div class="progress" style="margin-top:6px;"><div class="progress__fill" style="width:${progress}%"></div></div>
+        <div class="row justify-between text-sm" style="margin-top:4px;">
+          <span class="text-muted">${target.progress || 0} / ${target.target}</span>
+          <span class="text-accent">${progress}%</span>
+        </div>
+      </div>
+    ` : ''}
+    ${target.reward ? `<div class="challenge-strip__reward text-sm">🎁 ${escapeHtml(target.reward)}</div>` : ''}
+  `;
+
+  const actions = el('div', { class: 'challenge-strip__actions row gap-8 flex-wrap' });
+  if (isPending) {
+    const acceptBtn = el('button', { class: 'btn btn--primary', onClick: async () => { await acceptChallenge(target.id); } });
+    acceptBtn.innerHTML = icon('check') + ' ' + t('accept_challenge');
+    actions.appendChild(acceptBtn);
+
+    const skipBtn = el('button', { class: 'btn', onClick: async () => { await skipChallenge(target.id); } });
+    skipBtn.innerHTML = icon('x') + ' ' + t('skip_challenge');
+    actions.appendChild(skipBtn);
+  } else {
+    if (progress < 100) {
+      const completeBtn = el('button', { class: 'btn btn--success', onClick: async () => {
+        await completeChallenge(target.id);
+      }});
+      completeBtn.innerHTML = icon('check') + ' ' + t('complete_challenge');
+      actions.appendChild(completeBtn);
+    }
+    const skipBtn = el('button', { class: 'btn btn--ghost', onClick: async () => { await skipChallenge(target.id); } });
+    skipBtn.innerHTML = icon('x') + ' ' + t('skip_challenge');
+    actions.appendChild(skipBtn);
+  }
+  wrap.appendChild(actions);
+  return wrap;
+}
+
+// ============================================================
 // PULSE — top 3 tasks
 // ============================================================
 function renderPulse() {
-  const ar = getLang() === 'ar';
   const wrap = el('div', {});
   const head = el('div', { class: 'section-head' });
   head.innerHTML = `<h3 class="section-head__title">${t('pulse')} · ${t('today_tasks')}</h3>`;
@@ -158,7 +293,6 @@ function renderPulse() {
         </div>
       </div>
     `;
-    // Mark done button (stop propagation)
     const done = el('button', {
       class: 'btn btn--icon btn--ghost',
       title: t('mark_done'),
@@ -177,7 +311,7 @@ function renderPulse() {
 }
 
 // ============================================================
-// VITALS — mental state strip
+// VITALS
 // ============================================================
 function renderVitals() {
   const wrap = el('div', { style: { marginTop: '20px' } });
@@ -216,7 +350,6 @@ function renderVitals() {
 }
 
 function openVitalsModal() {
-  // Minimal inline modal implementation
   import('../ui.js').then(({ modal, toast }) => {
     const v = sel.latestVitals() || {};
     const fields = ['focus','mood','energy','stress','sleep','caffeine'];
@@ -253,7 +386,7 @@ function openVitalsModal() {
 }
 
 // ============================================================
-// ASSISTANT card — top AI suggestion
+// ASSISTANT card
 // ============================================================
 function renderAssistant() {
   const wrap = el('div', {});
@@ -298,7 +431,7 @@ function buildSuggestionCard(s) {
 }
 
 // ============================================================
-// DAILY SUMMARY card
+// SUMMARY card
 // ============================================================
 function renderSummary() {
   const wrap = el('div', { style: { marginTop: '20px' } });
@@ -318,6 +451,11 @@ function renderSummary() {
   `;
   wrap.appendChild(card);
 
+  // Talk to AI button (if configured)
+  const aiBtn = el('button', { class: 'btn btn--block', style: { marginTop: '10px' }, onClick: () => navigate('/assistant') });
+  aiBtn.innerHTML = icon('bot') + ' ' + t('chat') + ' ✨';
+  wrap.appendChild(aiBtn);
+
   // Quick streak strip
   const streakStrip = el('div', { class: 'row gap-12 flex-wrap', style: { marginTop: '12px', justifyContent: 'space-between' } });
   const streak = sel.streak();
@@ -332,6 +470,86 @@ function renderSummary() {
   wrap.appendChild(streakStrip);
 
   return wrap;
+}
+
+// ============================================================
+// TIPS QUICK STRIP — non-dismissed tip cards (inline, top 3)
+// ============================================================
+function renderTipsStrip() {
+  const ar = getLang() === 'ar';
+  const state = getState();
+  const dismissed = state.tipsDismissed || [];
+
+  // Pick top 3 contextual tips
+  const allTips = [
+    { id: 'chat', condition: () => !state.geminiApiKey && !state.openaiApiKey, route: '/settings?section=ai',
+      title: t('tip_chat_title'), desc: t('tip_chat_desc'), iconName: 'bot' },
+    { id: 'notion', condition: () => !state.notionToken, route: '/settings?section=notion',
+      title: t('tip_notion_title'), desc: t('tip_notion_desc'), iconName: 'database' },
+    { id: 'telegram', condition: () => !state.telegramToken, route: '/settings?section=telegram',
+      title: t('tip_telegram_title'), desc: t('tip_telegram_desc'), iconName: 'send' },
+    { id: 'prayer', condition: () => !state.prayerCity && !state.prayerLat, route: '/settings?section=prayer',
+      title: t('tip_prayer_title'), desc: t('tip_prayer_desc'), iconName: 'star' },
+    { id: 'capture', condition: () => true, route: null, action: () => openCapture(),
+      title: t('tip_capture_title'), desc: t('tip_capture_desc'), iconName: 'plus' },
+    { id: 'modes', condition: () => true, route: null, action: () => import('../modes.js').then(m => m.cycleMode()),
+      title: t('tip_modes_title'), desc: t('tip_modes_desc'), iconName: 'layers' },
+    { id: 'review', condition: () => !sel.todayReview() && new Date().getHours() >= 17, route: '/reviews',
+      title: t('tip_review_title'), desc: t('tip_review_desc'), iconName: 'bookmark' },
+    { id: 'vitals', condition: () => !sel.latestVitals(), route: null, action: openVitalsModal,
+      title: t('tip_vitals_title'), desc: t('tip_vitals_desc'), iconName: 'battery' },
+    { id: 'install', condition: () => true, route: null,
+      title: t('tip_install_title'), desc: t('tip_install_desc'), iconName: 'download' }
+  ];
+  const candidates = allTips.filter((tp) => !dismissed.includes(tp.id) && tp.condition());
+  const picks = candidates.slice(0, 3);
+  if (picks.length === 0) return el('div', {});
+
+  const wrap = el('div', { style: { marginTop: '24px' } });
+  const head = el('div', { class: 'section-head' });
+  head.innerHTML = `<h3 class="section-head__title">${t('tips')}</h3>`;
+  const moreBtn = el('button', { class: 'section-head__action', onClick: () => navigate('/tips') });
+  moreBtn.textContent = t('tips_show_all') + ' →';
+  head.appendChild(moreBtn);
+  wrap.appendChild(head);
+
+  const grid = el('div', { class: 'tips-grid' });
+  picks.forEach((tp) => grid.appendChild(buildTipCard(tp)));
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function buildTipCard(tp) {
+  const card = el('div', { class: 'tip-card glass' });
+  card.innerHTML = `
+    <div class="tip-card__icon">${icon(tp.iconName, { size: 18 })}</div>
+    <div class="tip-card__body">
+      <div class="tip-card__title">${escapeHtml(tp.title)}</div>
+      <div class="tip-card__desc text-sm text-muted">${escapeHtml(tp.desc)}</div>
+    </div>
+  `;
+  const actions = el('div', { class: 'tip-card__actions row gap-8' });
+  const goBtn = el('button', { class: 'btn btn--sm btn--primary', onClick: () => {
+    if (tp.action) tp.action();
+    else if (tp.route) {
+      // Parse route + ?section=...
+      const [path, qs] = tp.route.split('?');
+      const params = qs ? Object.fromEntries(new URLSearchParams(qs)) : {};
+      navigate(path, params);
+    }
+  }});
+  goBtn.textContent = t('tip_explore');
+  const dismissBtn = el('button', { class: 'btn btn--sm btn--ghost', onClick: async () => {
+    const dismissed = [...(getState().tipsDismissed || []), tp.id];
+    const { setSetting } = await import('../store.js');
+    await setSetting('tipsDismissed', dismissed);
+    card.style.display = 'none';
+  }});
+  dismissBtn.textContent = t('tip_dismiss');
+  actions.appendChild(goBtn);
+  actions.appendChild(dismissBtn);
+  card.appendChild(actions);
+  return card;
 }
 
 // ============================================================

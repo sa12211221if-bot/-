@@ -1,280 +1,482 @@
-// Designer OS — AI Assistant page
-// Central hub for AI-powered insights: suggestions, daily summary, patterns, chat (placeholder).
+// Designer OS — AI Assistant page (real chat)
+// Threads + streaming + slash commands + persistent history.
 
-import { el, addDays, isSameDay, fmtDuration } from '../utils.js';
+import { el } from '../utils.js';
 import { icon } from '../icons.js';
-import { t, getLang, fmtDate } from '../i18n.js';
-import { getState, sel } from '../store.js';
-import { generateSuggestions, generateDailySummary, applySuggestion, breakdownTask } from '../ai.js';
-import { input, toast } from '../ui.js';
+import { t, getLang, fmtRelative } from '../i18n.js';
+import { getState, sel, upsert, remove, setActiveChatThread } from '../store.js';
+import { uid } from '../db.js';
+import { streamChat, isAIConfigured, currentProvider } from '../aiClient.js';
+import { buildSystemPrompt, expandCommand, commandList, COMMANDS } from '../aiContext.js';
+import { navigate } from '../router.js';
+import { input, toast, confirmDialog } from '../ui.js';
 
-export async function renderAssistant() {
-  const root = el('div', { class: 'reveal' });
+let abortController = null;
+let lastInputValue = '';
+
+export async function renderAssistant({ params } = {}) {
+  const root = el('div', { class: 'assistant-page reveal' });
   const ar = getLang() === 'ar';
-
-  // Header
-  root.appendChild(el('div', { class: 'page-header' },
-    el('div', {},
-      el('h2', { class: 'page-header__title' }, t('assistant')),
-      el('div', { class: 'page-header__subtitle' },
-        ar ? 'مساعدك الشخصي — يفهم سياقك ويقترح الخطوة التالية'
-           : 'Your personal assistant — understands context, suggests next moves')
-    )
-  ));
+  const state = getState();
 
   // ============================================================
-  // 1. DAILY SUMMARY
+  // No-provider banner
   // ============================================================
-  const summary = generateDailySummary();
-  const summaryCard = el('div', { class: 'glass panel', style: { padding: '22px', marginBottom: '18px' } });
-  summaryCard.innerHTML = `
-    <div class="row gap-12 items-center" style="margin-bottom:14px;">
-      <div style="width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg, var(--accent-2), var(--accent-3));display:grid;place-items:center;color:white;flex-shrink:0;">
-        ${icon('bot', { size: 20 })}
-      </div>
-      <div>
-        <div style="font-size:15px;font-weight:700;">${t('ai_summary_title')}</div>
-        <div class="text-sm text-muted">${fmtDate(new Date(), { weekday: 'long', day: 'numeric', month: 'long' })}</div>
-      </div>
-    </div>
-    <p style="font-size:14.5px;line-height:1.7;color:var(--text);margin:0;">${escapeHtml(summary)}</p>
-  `;
-  root.appendChild(summaryCard);
-
-  // Quick numbers strip
-  const focusMin = sel.focusMinutesToday();
-  const tasksDoneToday = getState().tasks.filter((t) => t.status === 'done' && t.completedAt && isSameDay(t.completedAt, new Date())).length;
-  const habitsDone = sel.habitsDoneToday();
-  const habitsTotal = getState().habits.length;
-  const stats = el('div', { class: 'stats-grid', style: { marginBottom: '18px' } });
-  stats.appendChild(metricCard('flame', t('streak'), sel.streak() + ' ' + t('days'), true));
-  stats.appendChild(metricCard('clock', t('focus_today'), fmtDuration(focusMin)));
-  stats.appendChild(metricCard('check_circle', t('completed_tasks'), tasksDoneToday));
-  stats.appendChild(metricCard('check', t('habits'), habitsDone + '/' + habitsTotal));
-  root.appendChild(stats);
-
-  // ============================================================
-  // 2. SMART SUGGESTIONS (full list)
-  // ============================================================
-  root.appendChild(el('div', { class: 'section-head' },
-    (() => { const h = el('h3', { class: 'section-head__title' }); h.textContent = t('ai_suggestions'); return h; })()
-  ));
-
-  const suggestions = generateSuggestions();
-  if (suggestions.length === 0) {
-    root.appendChild(el('div', { class: 'glass panel', style: { padding: '20px', textAlign: 'center' } },
-      el('div', { class: 'text-muted text-sm' }, t('ai_no_suggestions'))
-    ));
-  } else {
-    const list = el('div', { class: 'col gap-12', style: { marginBottom: '18px' } });
-    suggestions.forEach((s) => list.appendChild(buildFullSuggestion(s)));
-    root.appendChild(list);
+  if (!isAIConfigured()) {
+    root.appendChild(buildSetupBanner());
   }
 
   // ============================================================
-  // 3. PATTERN INSIGHTS
+  // Layout: sidebar (threads) + main (messages)
   // ============================================================
-  root.appendChild(el('div', { class: 'section-head' },
-    (() => { const h = el('h3', { class: 'section-head__title' }); h.textContent = t('ai_pattern') + ' · ' + t('insights'); return h; })()
-  ));
-  root.appendChild(buildPatternsPanel());
+  const grid = el('div', { class: 'chat-grid' });
+  root.appendChild(grid);
 
-  // ============================================================
-  // 4. AI ACTIONS (breakdown, ask anything)
-  // ============================================================
-  root.appendChild(el('div', { class: 'section-head' },
-    (() => { const h = el('h3', { class: 'section-head__title' }); h.textContent = ar ? 'أدوات الذكاء' : 'AI tools'; return h; })()
-  ));
+  // Threads sidebar
+  const threadsAside = buildThreadsSidebar();
+  grid.appendChild(threadsAside);
 
-  const tools = el('div', { class: 'glass panel', style: { padding: '20px', marginBottom: '18px' } });
-  tools.appendChild(el('div', { class: 'text-sm text-muted', style: { marginBottom: '10px' } },
-    ar ? 'اكتب فكرة أو مهمة كبيرة، وسأقسّمها إلى خطوات قابلة للتنفيذ.'
-       : 'Type a big idea or task and I will break it into actionable steps.'
-  ));
-  const breakdownInput = input({
-    placeholder: ar ? 'مثلاً: تصميم هوية بصرية لمطعم...' : 'e.g. Design a brand identity for a restaurant...',
-    style: { fontSize: '14px', marginBottom: '12px' }
-  });
-  const breakdownBtn = el('button', { class: 'btn btn--primary', onClick: () => {
-    const text = breakdownInput.value.trim();
-    if (!text) { toast(t('required'), 'error'); return; }
-    const steps = breakdownTask(text);
-    out.innerHTML = '';
-    out.appendChild(el('div', { class: 'text-muted text-sm', style: { marginBottom: '10px' } },
-      ar ? '✨ خطوات مقترحة:' : '✨ Suggested steps:'
-    ));
-    steps.forEach((step, i) => {
-      const row = el('div', { class: 'pulse-card', style: { marginBottom: '6px' } });
-      row.innerHTML = `
-        <div class="pulse-card__num">${i + 1}</div>
-        <div class="pulse-card__main">
-          <div class="pulse-card__title">${escapeHtml(step)}</div>
-        </div>
-      `;
-      out.appendChild(row);
-    });
-  }});
-  breakdownBtn.innerHTML = icon('zap') + ' ' + t('ai_breakdown');
-  tools.appendChild(breakdownInput);
-  tools.appendChild(breakdownBtn);
-  const out = el('div', { style: { marginTop: '16px' } });
-  tools.appendChild(out);
-  root.appendChild(tools);
+  // Main chat panel
+  const main = el('div', { class: 'chat-main' });
+  grid.appendChild(main);
 
-  // ============================================================
-  // 5. CHAT PLACEHOLDER (future OpenAI integration)
-  // ============================================================
-  const chatHint = el('div', { class: 'glass panel', style: { padding: '18px', opacity: 0.75 } });
-  chatHint.innerHTML = `
-    <div class="row gap-8 items-center" style="margin-bottom:6px;">
-      ${icon('bot', { size: 16 })}
-      <span style="font-weight:600;">${ar ? 'محادثة AI (قريباً)' : 'AI Chat (coming soon)'}</span>
-    </div>
-    <div class="text-sm text-muted">${ar
-      ? 'سيتم تفعيل المحادثة المباشرة عند ربط مفتاح OpenAI من الإعدادات. كل المحركات الحالية تعمل محلياً بدون إنترنت.'
-      : 'Live chat unlocks once you add an OpenAI key in Settings. All current intelligence runs locally and works offline.'}</div>
-  `;
-  root.appendChild(chatHint);
+  // Active thread
+  let activeId = state.activeChatThreadId;
+  if (!activeId && state.chatThreads.length) {
+    activeId = state.chatThreads.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0].id;
+    setActiveChatThread(activeId);
+  }
+
+  renderMain(main, activeId);
 
   return root;
 }
 
-function metricCard(iconName, label, value, accent) {
-  const card = el('div', { class: 'glass stat ' + (accent ? 'stat--accent' : '') });
-  const ic = el('div', { class: 'stat__icon' });
-  ic.innerHTML = icon(iconName, { size: 18 });
-  card.appendChild(ic);
-  card.appendChild(el('div', { class: 'stat__label' }, label));
-  card.appendChild(el('div', { class: 'stat__value', style: { fontSize: '20px' } }, String(value)));
-  return card;
-}
-
-function buildFullSuggestion(s) {
-  const card = el('div', { class: 'ai-card' });
-  card.innerHTML = `
-    <div class="ai-card__icon">${icon(s.icon || 'zap', { size: 18 })}</div>
-    <div class="ai-card__body">
-      <div class="ai-card__title">${escapeHtml(s.title)}</div>
-      <div class="ai-card__reason">${escapeHtml(s.reason || '')}</div>
+// ============================================================
+// Setup banner
+// ============================================================
+function buildSetupBanner() {
+  const ar = getLang() === 'ar';
+  const banner = el('div', { class: 'glass panel chat-setup-banner' });
+  banner.innerHTML = `
+    <div class="row gap-12 items-center">
+      <div class="chat-setup-banner__icon">${icon('zap', { size: 22 })}</div>
+      <div class="flex-1">
+        <div style="font-weight:700;font-size:14.5px;">${t('chat_no_provider')}</div>
+        <div class="text-sm text-muted" style="margin-top:2px;">${ar ? 'إعداد سريع في أقل من دقيقة' : 'Quick setup in under a minute'}</div>
+      </div>
     </div>
   `;
-  const body = card.querySelector('.ai-card__body');
-  const actions = el('div', { class: 'ai-card__actions' });
-  const apply = el('button', { class: 'ai-card__btn ai-card__btn--primary', onClick: () => applySuggestion(s) });
-  apply.textContent = s.actionLabel || t('ai_apply');
-  actions.appendChild(apply);
-  const dismiss = el('button', { class: 'ai-card__btn', onClick: () => { card.style.display = 'none'; } });
-  dismiss.textContent = t('ai_dismiss');
-  actions.appendChild(dismiss);
-  body.appendChild(actions);
-  return card;
+  const btn = el('button', { class: 'btn btn--primary', onClick: () => navigate('/settings', { section: 'ai' }) });
+  btn.innerHTML = icon('settings') + ' ' + t('chat_setup');
+  banner.appendChild(btn);
+  return banner;
 }
 
-function buildPatternsPanel() {
+// ============================================================
+// Threads sidebar
+// ============================================================
+function buildThreadsSidebar() {
   const ar = getLang() === 'ar';
-  const state = getState();
+  const aside = el('aside', { class: 'chat-threads' });
 
-  // Compute patterns from data
-  const sessions = state.focusSessions.filter((s) => s.completed);
-  const insights = [];
+  const head = el('div', { class: 'chat-threads__head' });
+  const newBtn = el('button', { class: 'btn btn--primary btn--block', onClick: () => createNewThread() });
+  newBtn.innerHTML = icon('plus') + ' ' + t('new_chat');
+  head.appendChild(newBtn);
+  aside.appendChild(head);
 
-  // Best hour
-  if (sessions.length >= 6) {
-    const buckets = new Array(24).fill(0);
-    sessions.forEach((s) => { buckets[new Date(s.startedAt || s.date).getHours()]++; });
-    let peakH = 0, peakC = 0;
-    buckets.forEach((c, h) => { if (c > peakC) { peakC = c; peakH = h; } });
-    insights.push({
-      icon: 'trending',
-      title: ar ? `أفضل ساعة للتركيز: ${peakH}:00` : `Best focus hour: ${peakH}:00`,
-      desc: ar
-        ? `${peakC} من ${sessions.length} جلسة كانت في هذا الوقت تقريباً`
-        : `${peakC} of ${sessions.length} sessions cluster around this hour`
+  const list = el('div', { class: 'chat-threads__list' });
+  aside.appendChild(list);
+
+  const refresh = () => {
+    list.innerHTML = '';
+    const threads = sel.recentChatThreads(50);
+    if (!threads.length) {
+      list.appendChild(el('div', { class: 'chat-threads__empty text-sm text-muted' }, ar ? 'لا محادثات بعد' : 'No chats yet'));
+      return;
+    }
+    threads.forEach((th) => {
+      const isActive = getState().activeChatThreadId === th.id;
+      const item = el('div', { class: 'chat-thread-item' + (isActive ? ' active' : '') });
+      const main = el('div', { class: 'chat-thread-item__main', onClick: () => switchThread(th.id) });
+      main.innerHTML = `
+        <div class="chat-thread-item__title">${escapeHtml(th.title || (ar ? 'محادثة' : 'Chat'))}</div>
+        <div class="chat-thread-item__meta">${fmtRelative(th.updatedAt || th.createdAt)}</div>
+      `;
+      const del = el('button', { class: 'chat-thread-item__del', title: t('delete'), onClick: async (e) => {
+        e.stopPropagation();
+        const ok = await confirmDialog(t('confirm_delete'));
+        if (!ok) return;
+        // Delete messages too
+        const msgs = sel.messagesForThread(th.id);
+        for (const m of msgs) await remove('chatMessages', m.id);
+        await remove('chatThreads', th.id);
+        if (getState().activeChatThreadId === th.id) setActiveChatThread(null);
+        toast(t('chat_thread_deleted'));
+      }});
+      del.innerHTML = icon('trash', { size: 14 });
+      item.appendChild(main);
+      item.appendChild(del);
+      list.appendChild(item);
     });
-  }
+  };
+  refresh();
 
-  // Best day of week
-  if (sessions.length >= 7) {
-    const dow = new Array(7).fill(0);
-    const names = ar
-      ? ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
-      : ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    sessions.forEach((s) => { dow[new Date(s.date).getDay()]++; });
-    let peakD = 0, peakC = 0;
-    dow.forEach((c, d) => { if (c > peakC) { peakC = c; peakD = d; } });
-    insights.push({
-      icon: 'calendar',
-      title: ar ? `يومك الذهبي: ${names[peakD]}` : `Most productive day: ${names[peakD]}`,
-      desc: ar ? 'احجز عملك العميق في هذا اليوم' : 'Block your deepest work for this day'
-    });
-  }
-
-  // Average session length
-  if (sessions.length >= 3) {
-    const avg = sessions.reduce((sum, s) => sum + (s.duration || 0), 0) / sessions.length;
-    insights.push({
-      icon: 'clock',
-      title: ar ? `متوسط جلسة التركيز: ${Math.round(avg)} دقيقة` : `Average focus session: ${Math.round(avg)} min`,
-      desc: ar ? 'استخدم هذا الرقم لتقدير المهام بشكل أدق' : 'Use this baseline for sharper task estimates'
-    });
-  }
-
-  // Habit consistency
-  const habits = state.habits;
-  if (habits.length > 0) {
-    const consistencies = habits.map((h) => {
-      const last30 = state.habitLogs.filter((l) =>
-        l.habitId === h.id && l.status === 'done' &&
-        new Date(l.date) >= addDays(new Date(), -30)
-      ).length;
-      return { name: h.name, percent: Math.round((last30 / 30) * 100) };
-    });
-    const top = consistencies.reduce((a, b) => (b.percent > (a?.percent || 0) ? b : a), null);
-    if (top && top.percent > 0) {
-      insights.push({
-        icon: 'flame',
-        title: ar ? `الأكثر اتساقاً: ${top.name}` : `Most consistent: ${top.name}`,
-        desc: ar ? `${top.percent}% من آخر 30 يوم` : `${top.percent}% of last 30 days`
+  // Re-render on store changes
+  const observer = new MutationObserver(refresh);
+  setTimeout(() => {
+    if (aside.isConnected) {
+      // Watch the store for changes via event-based subscribe
+      import('../store.js').then(({ subscribe }) => {
+        const unsub = subscribe(() => { if (aside.isConnected) refresh(); });
+        aside.addEventListener('disconnected', unsub);
       });
     }
-  }
+  }, 0);
 
-  // Energy correlation
-  const vitals = state.vitals;
-  if (vitals.length >= 5) {
-    const avgEnergy = vitals.reduce((s, v) => s + (v.energy || 0), 0) / vitals.length;
-    insights.push({
-      icon: 'battery',
-      title: ar ? `متوسط طاقتك: ${avgEnergy.toFixed(1)}/5` : `Average energy: ${avgEnergy.toFixed(1)}/5`,
-      desc: avgEnergy >= 3.5
-        ? (ar ? 'مستويات صحية — استمر' : 'Healthy levels — keep going')
-        : (ar ? 'فكّر في النوم والترطيب والمشي اليومي' : 'Consider sleep, hydration, and daily walks')
-    });
-  }
-
-  if (insights.length === 0) {
-    const empty = el('div', { class: 'glass panel', style: { padding: '20px', textAlign: 'center' } });
-    empty.innerHTML = `<div class="text-muted text-sm">${ar
-      ? 'استخدم النظام أكثر — وستبدأ الأنماط بالظهور هنا'
-      : 'Keep using the system — patterns will appear here'}</div>`;
-    return empty;
-  }
-
-  const grid = el('div', { class: 'col gap-8', style: { marginBottom: '18px' } });
-  insights.forEach((i) => {
-    const tile = el('div', { class: 'glass panel', style: { padding: '14px', display: 'flex', gap: '12px', alignItems: 'flex-start' } });
-    const ic = el('div', { style: { width: '32px', height: '32px', borderRadius: '9px', background: 'var(--accent-soft)', display: 'grid', placeItems: 'center', color: 'var(--accent-2)', flexShrink: 0 } });
-    ic.innerHTML = icon(i.icon, { size: 16 });
-    tile.appendChild(ic);
-    const body = el('div', {});
-    body.appendChild(el('div', { style: { fontSize: '13.5px', fontWeight: 600 } }, i.title));
-    body.appendChild(el('div', { class: 'text-sm text-muted', style: { marginTop: '2px' } }, i.desc));
-    tile.appendChild(body);
-    grid.appendChild(tile);
-  });
-  return grid;
+  return aside;
 }
 
+async function createNewThread() {
+  const ar = getLang() === 'ar';
+  const thread = {
+    id: uid(),
+    title: ar ? 'محادثة جديدة' : 'New chat',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  await upsert('chatThreads', thread);
+  setActiveChatThread(thread.id);
+}
+
+function switchThread(id) {
+  setActiveChatThread(id);
+}
+
+// ============================================================
+// Main chat panel (messages + input)
+// ============================================================
+function renderMain(container, threadId) {
+  container.innerHTML = '';
+  const ar = getLang() === 'ar';
+  if (!threadId) {
+    container.appendChild(buildEmptyState());
+    return;
+  }
+  const thread = sel.chatThread(threadId);
+  if (!thread) {
+    container.appendChild(buildEmptyState());
+    return;
+  }
+
+  // Header
+  const header = el('div', { class: 'chat-header' });
+  const titleEl = el('div', { class: 'chat-header__title' }, thread.title);
+  const provider = currentProvider();
+  const providerLabel = el('div', { class: 'chat-header__provider' });
+  providerLabel.innerHTML = `<span class="dot ${provider.configured ? 'dot--success' : 'dot--muted'}"></span> ${provider.provider} · ${provider.model}`;
+  header.appendChild(titleEl);
+  header.appendChild(providerLabel);
+  container.appendChild(header);
+
+  // Messages list
+  const messagesEl = el('div', { class: 'chat-messages', id: 'chat-messages-' + threadId });
+  container.appendChild(messagesEl);
+
+  const messages = sel.messagesForThread(threadId);
+  if (messages.length === 0) {
+    messagesEl.appendChild(buildWelcome());
+  } else {
+    messages.forEach((m) => messagesEl.appendChild(buildMessage(m)));
+  }
+
+  // Auto-scroll on store updates
+  setTimeout(() => {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    import('../store.js').then(({ subscribe }) => {
+      let lastCount = messages.length;
+      const unsub = subscribe(() => {
+        if (!messagesEl.isConnected) { unsub(); return; }
+        const cur = sel.messagesForThread(threadId);
+        if (cur.length !== lastCount) {
+          // Append new messages
+          for (let i = lastCount; i < cur.length; i++) {
+            messagesEl.appendChild(buildMessage(cur[i]));
+          }
+          lastCount = cur.length;
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        } else {
+          // Possibly streaming update — check last message
+          const last = cur[cur.length - 1];
+          if (last) {
+            const lastEl = messagesEl.querySelector(`[data-mid="${last.id}"] .chat-msg__body`);
+            if (lastEl && lastEl.dataset.snapshot !== String(last.content?.length || 0)) {
+              lastEl.textContent = last.content || '';
+              lastEl.dataset.snapshot = String(last.content?.length || 0);
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+          }
+        }
+      });
+    });
+  }, 30);
+
+  // Input
+  const inputBox = buildInput(threadId, messagesEl);
+  container.appendChild(inputBox);
+}
+
+function buildEmptyState() {
+  const ar = getLang() === 'ar';
+  const wrap = el('div', { class: 'chat-empty' });
+  wrap.innerHTML = `
+    <div class="chat-empty__icon">${icon('bot', { size: 36 })}</div>
+    <h2 class="chat-empty__title">${t('chat_empty_title')}</h2>
+    <p class="chat-empty__hint">${t('chat_empty_hint')}</p>
+  `;
+  const startBtn = el('button', { class: 'btn btn--primary', onClick: () => createNewThread() });
+  startBtn.innerHTML = icon('plus') + ' ' + t('new_chat');
+  wrap.appendChild(startBtn);
+  return wrap;
+}
+
+function buildWelcome() {
+  const ar = getLang() === 'ar';
+  const wrap = el('div', { class: 'chat-welcome' });
+  wrap.innerHTML = `
+    <div class="chat-welcome__hero">
+      <div class="chat-welcome__icon">${icon('bot', { size: 32 })}</div>
+      <h3>${t('chat_empty_title')}</h3>
+      <p class="text-muted">${t('chat_with_data')}</p>
+    </div>
+  `;
+  const grid = el('div', { class: 'chat-commands-grid' });
+  commandList().forEach((c) => {
+    const card = el('button', {
+      class: 'chat-command-card',
+      onClick: () => {
+        const inputEl = document.querySelector('.chat-input__field');
+        if (inputEl) {
+          inputEl.value = c.key + ' ';
+          inputEl.focus();
+        }
+      }
+    });
+    card.innerHTML = `
+      <div class="chat-command-card__icon">${icon(c.icon, { size: 16 })}</div>
+      <div class="chat-command-card__text">
+        <div class="chat-command-card__cmd">${c.key}</div>
+        <div class="chat-command-card__label">${c.label[getLang()] || c.label.en}</div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function buildMessage(m) {
+  const isUser = m.role === 'user';
+  const wrap = el('div', { class: 'chat-msg chat-msg--' + (isUser ? 'user' : 'assistant'), dataset: { mid: m.id } });
+  const avatar = el('div', { class: 'chat-msg__avatar' });
+  avatar.innerHTML = isUser ? icon('user', { size: 16 }) : icon('bot', { size: 16 });
+  wrap.appendChild(avatar);
+  const body = el('div', { class: 'chat-msg__body' });
+  body.textContent = m.content || '';
+  body.dataset.snapshot = String(m.content?.length || 0);
+  wrap.appendChild(body);
+
+  if (!isUser && m.content) {
+    const actions = el('div', { class: 'chat-msg__actions' });
+    const copyBtn = el('button', { class: 'chat-msg__action', title: t('chat_copy'), onClick: () => {
+      navigator.clipboard.writeText(m.content || '').then(() => toast(t('chat_copied'), 'success', 1200));
+    }});
+    copyBtn.innerHTML = icon('copy', { size: 12 });
+    actions.appendChild(copyBtn);
+    wrap.appendChild(actions);
+  }
+  return wrap;
+}
+
+// ============================================================
+// Input box
+// ============================================================
+function buildInput(threadId, messagesEl) {
+  const ar = getLang() === 'ar';
+  const wrap = el('div', { class: 'chat-input-wrap' });
+
+  // Slash command suggestions popup
+  const suggestions = el('div', { class: 'chat-suggestions hidden' });
+  wrap.appendChild(suggestions);
+
+  const row = el('div', { class: 'chat-input' });
+  const field = el('textarea', {
+    class: 'chat-input__field',
+    placeholder: t('chat_placeholder'),
+    rows: 1
+  });
+  field.value = lastInputValue || '';
+  field.addEventListener('input', () => {
+    lastInputValue = field.value;
+    autoResize(field);
+    // Show command suggestions if starts with /
+    if (field.value.trim().startsWith('/') && !field.value.includes(' ')) {
+      suggestions.classList.remove('hidden');
+      renderSuggestions(suggestions, field);
+    } else {
+      suggestions.classList.add('hidden');
+    }
+  });
+  field.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      doSend(threadId, field, sendBtn, stopBtn, messagesEl);
+    }
+  });
+
+  const sendBtn = el('button', { class: 'btn btn--primary chat-input__send', onClick: () => doSend(threadId, field, sendBtn, stopBtn, messagesEl) });
+  sendBtn.innerHTML = icon('send', { size: 16 });
+
+  const stopBtn = el('button', { class: 'btn btn--danger chat-input__stop hidden', onClick: () => { if (abortController) abortController.abort(); } });
+  stopBtn.innerHTML = icon('stop', { size: 16 });
+
+  row.appendChild(field);
+  row.appendChild(sendBtn);
+  row.appendChild(stopBtn);
+  wrap.appendChild(row);
+
+  // Hint line
+  wrap.appendChild(el('div', { class: 'chat-input__hint text-sm text-muted' },
+    (ar ? '↩ إرسال · ⇧↩ سطر جديد · جرّب /report ، /brief ، /price' : 'Enter to send · Shift+Enter newline · try /report, /brief, /price')
+  ));
+
+  setTimeout(() => field.focus(), 50);
+  return wrap;
+}
+
+function autoResize(textarea) {
+  textarea.style.height = 'auto';
+  textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+}
+
+function renderSuggestions(container, field) {
+  container.innerHTML = '';
+  const filter = field.value.trim().toLowerCase();
+  const matches = commandList().filter((c) => c.key.startsWith(filter));
+  if (!matches.length) { container.classList.add('hidden'); return; }
+  matches.forEach((c) => {
+    const item = el('button', {
+      class: 'chat-suggestion',
+      onClick: () => {
+        field.value = c.key + ' ';
+        field.focus();
+        container.classList.add('hidden');
+        autoResize(field);
+      }
+    });
+    item.innerHTML = `
+      <span class="chat-suggestion__icon">${icon(c.icon, { size: 14 })}</span>
+      <span class="chat-suggestion__cmd">${c.key}</span>
+      <span class="chat-suggestion__label">${c.label[getLang()] || c.label.en}</span>
+    `;
+    container.appendChild(item);
+  });
+}
+
+// ============================================================
+// Send + stream
+// ============================================================
+async function doSend(threadId, field, sendBtn, stopBtn, messagesEl) {
+  const text = field.value.trim();
+  if (!text) return;
+
+  if (!isAIConfigured()) {
+    toast(t('chat_no_provider'), 'error', 4000);
+    navigate('/settings', { section: 'ai' });
+    return;
+  }
+
+  // Expand slash commands
+  const expanded = expandCommand(text);
+  const userVisible = text;
+  const userToAI = expanded || text;
+
+  // Hide welcome state
+  const welcome = messagesEl.querySelector('.chat-welcome');
+  if (welcome) welcome.remove();
+
+  // Push user message
+  const userMsg = {
+    id: uid(),
+    threadId,
+    role: 'user',
+    content: userVisible,
+    aiContent: userToAI,
+    createdAt: Date.now()
+  };
+  await upsert('chatMessages', userMsg);
+
+  // Update thread title from first message if still default
+  const thread = sel.chatThread(threadId);
+  if (thread && (thread.title === 'New chat' || thread.title === 'محادثة جديدة' || !thread.title)) {
+    const newTitle = userVisible.slice(0, 50) + (userVisible.length > 50 ? '...' : '');
+    await upsert('chatThreads', { ...thread, title: newTitle, updatedAt: Date.now() });
+  } else if (thread) {
+    await upsert('chatThreads', { ...thread, updatedAt: Date.now() });
+  }
+
+  // Clear input
+  field.value = '';
+  lastInputValue = '';
+  autoResize(field);
+
+  // Build messages array for AI: include thread history, but use aiContent for user messages
+  const history = sel.messagesForThread(threadId);
+  const aiMessages = history.map((m) => ({
+    role: m.role,
+    content: m.role === 'user' ? (m.aiContent || m.content) : m.content
+  }));
+
+  // Push placeholder assistant message
+  const assistantMsg = {
+    id: uid(),
+    threadId,
+    role: 'assistant',
+    content: '',
+    streaming: true,
+    createdAt: Date.now() + 1
+  };
+  await upsert('chatMessages', assistantMsg);
+
+  sendBtn.classList.add('hidden');
+  stopBtn.classList.remove('hidden');
+  abortController = new AbortController();
+
+  try {
+    let acc = '';
+    const system = buildSystemPrompt();
+    for await (const chunk of streamChat({ messages: aiMessages, system, signal: abortController.signal })) {
+      if (abortController.signal.aborted) break;
+      acc += chunk;
+      // Update message in DB (debounced via direct put)
+      await upsert('chatMessages', { ...assistantMsg, content: acc, streaming: true });
+    }
+    await upsert('chatMessages', { ...assistantMsg, content: acc, streaming: false });
+  } catch (e) {
+    const errText = (getLang() === 'ar' ? 'خطأ: ' : 'Error: ') + e.message;
+    await upsert('chatMessages', { ...assistantMsg, content: errText, streaming: false, error: true });
+    toast(errText, 'error', 5000);
+  } finally {
+    sendBtn.classList.remove('hidden');
+    stopBtn.classList.add('hidden');
+    abortController = null;
+  }
+}
+
+// ============================================================
+// Helpers
+// ============================================================
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'

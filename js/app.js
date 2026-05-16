@@ -1,12 +1,17 @@
-// Designer OS — Main entry point
+// Designer OS — Main entry point (v3)
 import { loadAll, getState, subscribe } from './store.js';
 import { applyLang } from './i18n.js';
 import { applyAccent } from './ui.js';
 import { buildShell, applyTheme } from './layout.js';
 import { registerRoute, setOutlet, start, navigate } from './router.js';
 import { initMode } from './modes.js';
+import { startBackgroundRefresh } from './prayerTimes.js';
+import { startScheduler } from './notifications.js';
+import { startPolling as startTelegramPolling } from './integrations/telegram.js';
+import { startAutoSync as startNotionAutoSync } from './integrations/notion.js';
+import { autoProgressActive } from './challenges.js';
 
-// Primary pages (new IA)
+// Primary pages
 import { renderDashboard } from './pages/dashboard.js';
 import { renderTasks } from './pages/tasks.js';
 import { renderProjects } from './pages/projects.js';
@@ -16,8 +21,9 @@ import { renderHabits } from './pages/habits.js';
 import { renderReviews } from './pages/reviews.js';
 import { renderAssistant } from './pages/assistant.js';
 import { renderSettings } from './pages/settings.js';
+import { renderTips } from './pages/tips.js';
 
-// Legacy pages (still reachable from Knowledge / Settings)
+// Legacy pages
 import { renderClients } from './pages/clients.js';
 import { renderInvoices } from './pages/invoices.js';
 import { renderFocus } from './pages/focus.js';
@@ -36,7 +42,7 @@ async function main() {
   const { outlet } = buildShell();
   setOutlet(outlet);
 
-  // Primary IA
+  // Primary IA routes
   registerRoute('/',           (ctx) => renderDashboard(ctx));
   registerRoute('/dashboard',  (ctx) => renderDashboard(ctx));
   registerRoute('/tasks',      (ctx) => renderTasks(ctx));
@@ -46,9 +52,10 @@ async function main() {
   registerRoute('/habits',     (ctx) => renderHabits(ctx));
   registerRoute('/reviews',    (ctx) => renderReviews(ctx));
   registerRoute('/assistant',  (ctx) => renderAssistant(ctx));
+  registerRoute('/tips',       (ctx) => renderTips(ctx));
   registerRoute('/settings',   (ctx) => renderSettings(ctx));
 
-  // Legacy / sub-pages reachable directly
+  // Legacy routes
   registerRoute('/clients',    (ctx) => renderClients(ctx));
   registerRoute('/invoices',   (ctx) => renderInvoices(ctx));
   registerRoute('/focus',      (ctx) => renderFocus(ctx));
@@ -58,6 +65,15 @@ async function main() {
   registerRoute('/calculator', (ctx) => renderCalculator(ctx));
 
   start();
+
+  // ============================================================
+  // Background services (fire-and-forget)
+  // ============================================================
+  startBackgroundRefresh();       // Prayer times (auto-refresh once/hour)
+  startScheduler();               // Notifications (prayer, overdue, habits, challenges)
+  startTelegramPolling();         // Telegram bot long-polling (if configured)
+  startNotionAutoSync();          // Notion auto-sync (if enabled, every 15 min)
+  autoProgressActive();           // Challenge progress check on boot
 
   // Auto-rerender current page on store changes (debounced).
   // Skip when a modal is open or input is focused so we don't break form inputs.
