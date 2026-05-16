@@ -1,6 +1,8 @@
-// Designer OS — Service Worker (offline-first, network-falling-back-to-cache)
-const VERSION = 'designer-os-v1.0.0';
-const CORE = [
+// Designer OS — Service Worker v1.1.0
+// Strategy: Cache First for assets, Network First for navigation
+const VERSION = 'designer-os-v1.1.0';
+
+const PRECACHE = [
   './',
   './index.html',
   './manifest.webmanifest',
@@ -14,6 +16,7 @@ const CORE = [
   './js/utils.js',
   './js/icons.js',
   './js/layout.js',
+  './js/seed.js',
   './js/pages/dashboard.js',
   './js/pages/clients.js',
   './js/pages/projects.js',
@@ -31,44 +34,79 @@ const CORE = [
   './assets/icon-512.png'
 ];
 
+// Install: precache all core assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(VERSION).then((cache) => cache.addAll(CORE)).catch(() => {})
+    caches.open(VERSION)
+      .then((cache) => cache.addAll(PRECACHE))
+      .then(() => self.skipWaiting())
+      .catch((err) => {
+        console.log('SW precache partial fail:', err);
+        self.skipWaiting();
+      })
   );
-  self.skipWaiting();
 });
 
+// Activate: clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))
-    )
+    caches.keys()
+      .then((keys) => Promise.all(
+        keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
+// Fetch: Cache First for known assets, Network First for navigation
 self.addEventListener('fetch', (event) => {
   const req = event.request;
+
+  // Only handle GET
   if (req.method !== 'GET') return;
+
+  // Only handle same-origin
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const fetchPromise = fetch(req)
+  // Navigation requests (HTML pages) — Network First with cache fallback
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req)
         .then((res) => {
-          if (res && res.status === 200 && res.type === 'basic') {
-            const clone = res.clone();
-            caches.open(VERSION).then((cache) => cache.put(req, clone)).catch(() => {});
-          }
+          const clone = res.clone();
+          caches.open(VERSION).then((cache) => cache.put(req, clone));
           return res;
         })
-        .catch(() => cached || caches.match('./index.html'));
-      return cached || fetchPromise;
+        .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
+  // All other assets — Cache First with network fallback
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req).then((res) => {
+        if (res && res.status === 200 && res.type === 'basic') {
+          const clone = res.clone();
+          caches.open(VERSION).then((cache) => cache.put(req, clone));
+        }
+        return res;
+      }).catch(() => {
+        // For JS/CSS files, try the index as last resort
+        if (req.url.endsWith('.html')) {
+          return caches.match('./index.html');
+        }
+        return new Response('Offline', { status: 503 });
+      });
     })
   );
 });
 
+// Listen for skip waiting message from client
 self.addEventListener('message', (event) => {
-  if (event.data === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });

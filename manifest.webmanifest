@@ -1,28 +1,43 @@
 {
   "name": "Designer OS",
   "short_name": "DesignerOS",
-  "description": "Personal management system for freelance designers — clients, projects, tasks, focus, invoices, goals.",
-  "start_url": "./",
+  "description": "نظام شخصي متكامل لإدارة العمل الإبداعي للمصممين الفريلانس",
+  "start_url": "./index.html",
   "scope": "./",
+  "id": "/designer-os",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "any",
   "background_color": "#0b0b0f",
   "theme_color": "#0b0b0f",
   "lang": "ar",
   "dir": "rtl",
   "categories": ["productivity", "business", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "./assets/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "./assets/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "./assets/icon.svg",
@@ -31,22 +46,47 @@
       "purpose": "any"
     }
   ],
+  "screenshots": [
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Designer OS Dashboard"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Designer OS Mobile"
+    }
+  ],
   "shortcuts": [
     {
-      "name": "Focus",
+      "name": "وضع التركيز",
       "short_name": "Focus",
-      "url": "./#/focus",
-      "description": "Start a Pomodoro session"
+      "url": "./index.html#/focus",
+      "description": "ابدأ جلسة Pomodoro",
+      "icons": [{"src": "./assets/icon-192.png", "sizes": "192x192"}]
     },
     {
-      "name": "New Task",
+      "name": "مهمة جديدة",
       "short_name": "Task",
-      "url": "./#/tasks?new=1"
+      "url": "./index.html#/tasks?new=1",
+      "description": "أضف مهمة جديدة",
+      "icons": [{"src": "./assets/icon-192.png", "sizes": "192x192"}]
     },
     {
-      "name": "Dashboard",
+      "name": "الرئيسية",
       "short_name": "Home",
-      "url": "./#/"
+      "url": "./index.html#/",
+      "description": "الصفحة الرئيسية",
+      "icons": [{"src": "./assets/icon-192.png", "sizes": "192x192"}]
     }
-  ]
+  ],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
 }
