@@ -143,10 +143,10 @@ export function currentProvider() {
 
 export const AVAILABLE_MODELS = {
   gemini: [
-    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (سريع، مجاني)' },
-    { value: 'gemini-2.0-flash-thinking-exp', label: 'Gemini 2.0 Flash Thinking' },
-    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-    { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' }
+    { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (سريع، مجاني)' },
+    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (أقوى)' },
+    { value: 'gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash (تجريبي)' },
+    { value: 'gemini-1.5-flash-8b', label: 'Gemini 1.5 Flash 8B (خفيف جداً)' }
   ],
   openai: [
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini (موصى به - رخيص)' },
@@ -166,7 +166,7 @@ export async function* streamChat({ messages, system, signal }) {
   const s = getState();
   if (s.aiProvider === 'gemini') {
     if (!s.geminiApiKey) throw new Error('Gemini API key missing. Add it in Settings.');
-    yield* geminiStream({ messages, system, model: s.geminiModel || 'gemini-2.0-flash', apiKey: s.geminiApiKey, signal });
+    yield* geminiStream({ messages, system, model: s.geminiModel || 'gemini-1.5-flash', apiKey: s.geminiApiKey, signal });
   } else if (s.aiProvider === 'openai') {
     if (!s.openaiApiKey) throw new Error('OpenAI API key missing. Add it in Settings.');
     yield* openaiStream({ messages, system, model: s.openaiModel || 'gpt-4o-mini', apiKey: s.openaiApiKey, signal });

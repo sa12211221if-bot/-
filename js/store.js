@@ -21,7 +21,7 @@ const state = {
   // AI provider
   aiProvider: 'gemini', // gemini | openai
   geminiApiKey: '',
-  geminiModel: 'gemini-2.0-flash',
+  geminiModel: 'gemini-1.5-flash',
   openaiApiKey: '',
   openaiModel: 'gpt-4o-mini',
   aiServerUrl: '', // optional proxy for production
