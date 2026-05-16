@@ -1,6 +1,6 @@
-// Designer OS — Service Worker v1.1.0
+// Designer OS — Service Worker v1.2.0
 // Strategy: Cache First for assets, Network First for navigation
-const VERSION = 'designer-os-v1.1.0';
+const VERSION = 'designer-os-v1.2.0';
 
 const PRECACHE = [
   './',
@@ -17,6 +17,9 @@ const PRECACHE = [
   './js/icons.js',
   './js/layout.js',
   './js/seed.js',
+  './js/modes.js',
+  './js/ai.js',
+  './js/capture.js',
   './js/pages/dashboard.js',
   './js/pages/clients.js',
   './js/pages/projects.js',
@@ -29,6 +32,10 @@ const PRECACHE = [
   './js/pages/ideas.js',
   './js/pages/calculator.js',
   './js/pages/settings.js',
+  './js/pages/habits.js',
+  './js/pages/reviews.js',
+  './js/pages/knowledge.js',
+  './js/pages/assistant.js',
   './assets/icon.svg',
   './assets/icon-192.png',
   './assets/icon-512.png'

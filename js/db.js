@@ -3,7 +3,7 @@
 //         goals, ideas, focusSessions, settings, inbox
 
 const DB_NAME = 'designer-os';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = [
   { name: 'clients',       key: 'id', indexes: [['name', 'name']] },
@@ -17,7 +17,17 @@ const STORES = [
   { name: 'focusSessions', key: 'id', indexes: [['date', 'date'], ['projectId', 'projectId']] },
   { name: 'inbox',         key: 'id', indexes: [['createdAt', 'createdAt']] },
   { name: 'settings',      key: 'key' },
-  { name: 'expenses',      key: 'id', indexes: [['date', 'date'], ['category', 'category']] }
+  { name: 'expenses',      key: 'id', indexes: [['date', 'date'], ['category', 'category']] },
+
+  // Personal Command Center additions (v2)
+  { name: 'habits',        key: 'id', indexes: [['category', 'category'], ['createdAt', 'createdAt']] },
+  { name: 'habitLogs',     key: 'id', indexes: [['habitId', 'habitId'], ['date', 'date']] },
+  { name: 'reviews',       key: 'id', indexes: [['type', 'type'], ['date', 'date']] },
+  { name: 'knowledge',     key: 'id', indexes: [['category', 'category'], ['createdAt', 'createdAt']] }, // PARA: inbox|projects|areas|resources|archive
+  { name: 'areas',         key: 'id', indexes: [['name', 'name']] },
+  { name: 'resources',     key: 'id', indexes: [['type', 'type'], ['createdAt', 'createdAt']] },
+  { name: 'vitals',        key: 'id', indexes: [['date', 'date']] }, // mental state logs
+  { name: 'aiSuggestions', key: 'id', indexes: [['createdAt', 'createdAt'], ['dismissed', 'dismissed']] }
 ];
 
 let dbPromise = null;

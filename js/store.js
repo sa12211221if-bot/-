@@ -13,6 +13,9 @@ const state = {
   pomodoroBreak: 5,
   pomodoroLong: 15,
   weekStart: 6, // Saturday
+  // Personal Command Center
+  mode: 'normal', // normal | deep | creative | islamic | recovery
+  focusNow: null, // { taskId, projectId, startedAt, plannedMinutes }
   // collections
   clients: [],
   projects: [],
@@ -25,6 +28,15 @@ const state = {
   focusSessions: [],
   inbox: [],
   expenses: [],
+  // life-OS collections
+  habits: [],
+  habitLogs: [],
+  reviews: [],
+  knowledge: [],
+  areas: [],
+  resources: [],
+  vitals: [],
+  aiSuggestions: [],
   // ephemeral
   activeFocus: null
 };
@@ -90,6 +102,21 @@ export async function refreshAll() {
 
 export function setActiveFocus(session) {
   state.activeFocus = session;
+  emit();
+}
+
+// Mode setter (instant, persisted)
+export async function setMode(mode) {
+  state.mode = mode || 'normal';
+  await db.put('settings', { key: 'mode', value: state.mode });
+  document.documentElement.dataset.mode = state.mode;
+  emit();
+}
+
+// Set the user's current focus target (one task or project)
+export async function setFocusNow(focusNow) {
+  state.focusNow = focusNow;
+  await db.put('settings', { key: 'focusNow', value: focusNow });
   emit();
 }
 
@@ -174,5 +201,93 @@ export const sel = {
       cursor.setDate(cursor.getDate() - 1);
     }
     return streak;
+  },
+
+  // ---------- Life-OS selectors ----------
+
+  // Habits
+  habitLogsForHabit: (habitId) => state.habitLogs.filter((l) => l.habitId === habitId),
+  habitDoneToday: (habitId) => {
+    const today = new Date().toDateString();
+    return state.habitLogs.some((l) => l.habitId === habitId && new Date(l.date).toDateString() === today && l.status === 'done');
+  },
+  habitStreak: (habitId) => {
+    const days = new Set(
+      state.habitLogs
+        .filter((l) => l.habitId === habitId && l.status === 'done')
+        .map((l) => new Date(l.date).toDateString())
+    );
+    let count = 0;
+    const cur = new Date(); cur.setHours(0,0,0,0);
+    // Allow today to be missing without breaking streak (until end of day)
+    if (!days.has(cur.toDateString())) cur.setDate(cur.getDate() - 1);
+    while (days.has(cur.toDateString())) {
+      count++;
+      cur.setDate(cur.getDate() - 1);
+    }
+    return count;
+  },
+  habitsDoneToday: () => {
+    const today = new Date().toDateString();
+    const doneIds = new Set(
+      state.habitLogs
+        .filter((l) => new Date(l.date).toDateString() === today && l.status === 'done')
+        .map((l) => l.habitId)
+    );
+    return state.habits.filter((h) => doneIds.has(h.id)).length;
+  },
+
+  // Vitals (mental state)
+  latestVitals: () => {
+    if (!state.vitals.length) return null;
+    return state.vitals.slice().sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  },
+  vitalsToday: () => {
+    const today = new Date().toDateString();
+    return state.vitals.filter((v) => new Date(v.date).toDateString() === today);
+  },
+
+  // Reviews
+  todayReview: () => {
+    const today = new Date().toDateString();
+    return state.reviews.find((r) => r.type === 'daily' && new Date(r.date).toDateString() === today);
+  },
+  thisWeekReview: () => {
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0,0,0,0);
+    return state.reviews.find((r) => r.type === 'weekly' && new Date(r.date) >= weekStart);
+  },
+
+  // Knowledge / PARA
+  knowledgeByCategory: (category) =>
+    state.knowledge.filter((k) => (k.category || 'inbox') === category),
+
+  // AI suggestions (active = not dismissed)
+  activeSuggestions: () =>
+    state.aiSuggestions.filter((s) => !s.dismissed).sort((a, b) => (b.score || 0) - (a.score || 0)),
+
+  // Focus now — what should the user work on right now?
+  focusCandidate: () => {
+    if (state.focusNow && state.focusNow.taskId) {
+      const t = state.tasks.find((x) => x.id === state.focusNow.taskId);
+      if (t && t.status !== 'done') return t;
+    }
+    // Pick highest priority overdue or today task with high energy match
+    const candidates = state.tasks.filter((t) => t.status !== 'done' && t.dueDate);
+    if (!candidates.length) return null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const score = (t) => {
+      let s = 0;
+      if (t.priority === 'high') s += 30;
+      else if (t.priority === 'medium') s += 15;
+      const due = new Date(t.dueDate); due.setHours(0,0,0,0);
+      if (due < today) s += 50; // overdue
+      else if (due.getTime() === today.getTime()) s += 25; // today
+      else s += Math.max(0, 20 - Math.round((due - today) / 86400000));
+      return s;
+    };
+    return candidates.slice().sort((a, b) => score(b) - score(a))[0];
   }
 };

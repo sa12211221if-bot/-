@@ -1,12 +1,13 @@
-// Designer OS — Tasks (Daily Planner with smart scheduling)
+// Designer OS — Tasks (Daily Planner with smart scheduling + AI breakdown)
 import { el, startOfDay, endOfDay, addDays, isSameDay } from '../utils.js';
 import { icon } from '../icons.js';
 import { t, fmtDate, fmtRelative, getLang } from '../i18n.js';
 import { getState, sel, upsert, remove } from '../store.js';
 import { modal, toast, input, textarea, field, select, badge, emptyState, confirmDialog } from '../ui.js';
 import { navigate } from '../router.js';
+import { breakdownTask } from '../ai.js';
 
-let activeFilter = 'today'; // today | tomorrow | week | all | overdue | inbox
+let activeFilter = 'today'; // today | tomorrow | week | all | overdue | inbox | now | quick | deep
 
 export async function renderTasks({ params }) {
   const root = el('div', {});
@@ -26,6 +27,23 @@ export async function renderTasks({ params }) {
     )
   ));
 
+  // Smart filters (action-oriented chips)
+  const v = sel.latestVitals();
+  const smartBar = el('div', { class: 'row gap-8 flex-wrap', style: { marginBottom: '12px' } });
+  [
+    { id: 'now',   label: t('smart_filter_now'),   iconName: 'zap' },
+    { id: 'quick', label: t('smart_filter_quick'), iconName: 'flame' },
+    { id: 'deep',  label: t('smart_filter_deep'),  iconName: 'target' }
+  ].forEach((f) => {
+    const btn = el('button', {
+      class: 'smart-filter' + (activeFilter === f.id ? ' active' : ''),
+      onClick: () => { activeFilter = f.id; render(); refreshActive(); }
+    });
+    btn.innerHTML = icon(f.iconName, { size: 12 }) + ' ' + f.label;
+    smartBar.appendChild(btn);
+  });
+  root.appendChild(smartBar);
+
   // Filter tabs
   const filterBar = el('div', { class: 'tabs', style: { marginBottom: '14px' } });
   const overdue = sel.overdueTasks().length;
@@ -39,11 +57,27 @@ export async function renderTasks({ params }) {
   ].forEach((f) => {
     const btn = el('button', {
       class: 'tab' + (activeFilter === f.id ? ' active' : ''),
-      onClick: () => { activeFilter = f.id; render(); filterBar.querySelectorAll('.tab').forEach((x) => x.classList.remove('active')); btn.classList.add('active'); }
+      onClick: () => { activeFilter = f.id; render(); refreshActive(); }
     }, f.label + (f.badge > 0 ? ` · ${f.badge}` : ''));
     filterBar.appendChild(btn);
   });
   root.appendChild(filterBar);
+
+  function refreshActive() {
+    smartBar.querySelectorAll('.smart-filter').forEach((b) => {
+      const labelText = b.textContent.trim();
+      b.classList.toggle('active',
+        (activeFilter === 'now'   && labelText.includes(t('smart_filter_now'))) ||
+        (activeFilter === 'quick' && labelText.includes(t('smart_filter_quick'))) ||
+        (activeFilter === 'deep'  && labelText.includes(t('smart_filter_deep')))
+      );
+    });
+    filterBar.querySelectorAll('.tab').forEach((b) => {
+      const text = b.textContent;
+      const map = { today: t('today'), tomorrow: t('tomorrow'), week: t('this_week'), overdue: t('overdue'), all: t('all'), inbox: t('inbox') };
+      b.classList.toggle('active', text.startsWith(map[activeFilter] || ''));
+    });
+  }
 
   // Quick add
   const quickInput = input({ placeholder: t('quick_capture_hint'), style: { fontSize: '14px' } });
@@ -119,6 +153,20 @@ export async function renderTasks({ params }) {
       filtered = tasks.filter((x) => x.dueDate && new Date(x.dueDate) <= wEnd && x.status !== 'done');
     } else if (activeFilter === 'overdue') {
       filtered = sel.overdueTasks();
+    } else if (activeFilter === 'now') {
+      // Smart: pending tasks matching current energy + small enough to start
+      const v = sel.latestVitals();
+      const energyLevel = v ? (v.energy >= 4 ? 'high' : v.energy <= 2 ? 'low' : 'medium') : 'medium';
+      filtered = tasks.filter((x) => {
+        if (x.status === 'done') return false;
+        // prefer matching energy or no energy set
+        if (x.energy && x.energy !== energyLevel) return false;
+        return true;
+      }).slice(0, 10);
+    } else if (activeFilter === 'quick') {
+      filtered = tasks.filter((x) => x.status !== 'done' && (x.estimatedMinutes || 0) > 0 && x.estimatedMinutes <= 15);
+    } else if (activeFilter === 'deep') {
+      filtered = tasks.filter((x) => x.status !== 'done' && (x.estimatedMinutes || 0) >= 60);
     } else {
       filtered = tasks.filter((x) => x.status !== 'done');
     }
@@ -200,6 +248,23 @@ export async function renderTasks({ params }) {
 function taskRow(task) {
   const project = sel.projectById(task.projectId);
   const overdue = task.dueDate && task.status !== 'done' && new Date(task.dueDate) < startOfDay();
+  const subItems = [];
+  if (project) subItems.push(el('span', {}, project.name));
+  if (task.priority === 'high') subItems.push(badge(t('high'), 'danger'));
+  if (task.priority === 'low')  subItems.push(badge(t('low'), 'muted'));
+  if (task.energy) {
+    const sp = el('span', { class: 'task-chip task-chip--energy-' + task.energy });
+    sp.innerHTML = icon('flame', { size: 10 }) + ' ' + t(task.energy);
+    subItems.push(sp);
+  }
+  if (task.context) {
+    const sp = el('span', { class: 'task-chip' });
+    sp.textContent = t('ctx_' + task.context);
+    subItems.push(sp);
+  }
+  if (task.estimatedMinutes) {
+    subItems.push(el('span', { class: 'task-chip' }, `${task.estimatedMinutes}${t('minutes_short')}`));
+  }
   return el('div', { class: 'list__item', onClick: (e) => { if (e.target.closest('.checkbox')) return; openTaskModal(task); } },
     el('label', { class: 'checkbox', onClick: async (e) => {
       e.stopPropagation();
@@ -211,11 +276,8 @@ function taskRow(task) {
     ),
     el('div', { class: 'list__item-main' },
       el('div', { class: 'list__item-title', style: task.status === 'done' ? { textDecoration: 'line-through', opacity: 0.6 } : {} }, task.title),
-      el('div', { class: 'list__item-sub', style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' } },
-        project ? el('span', {}, project.name) : null,
-        task.priority === 'high' ? badge(t('high'), 'danger') : null,
-        task.priority === 'low'  ? badge(t('low'), 'muted') : null,
-        task.estimatedMinutes ? el('span', {}, `${task.estimatedMinutes}${t('minutes_short')}`) : null
+      el('div', { class: 'list__item-sub', style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' } },
+        ...subItems
       )
     ),
     task.dueDate ? el('div', { class: 'list__item-trail', style: { color: overdue ? 'var(--danger)' : '' } }, fmtRelative(task.dueDate)) : null
@@ -235,7 +297,8 @@ function tasksThisWeek() {
 function openTaskModal(existing, defaultProjectId) {
   const data = existing ? { ...existing } : {
     title: '', description: '', status: 'todo', priority: 'medium',
-    projectId: defaultProjectId || '', dueDate: '', estimatedMinutes: ''
+    projectId: defaultProjectId || '', dueDate: '', estimatedMinutes: '',
+    energy: 'medium', context: 'computer'
   };
   const projects = getState().projects;
   const titleI = input({ value: data.title, placeholder: t('task_title') });
@@ -249,6 +312,17 @@ function openTaskModal(existing, defaultProjectId) {
     { value: 'medium', label: t('medium') },
     { value: 'low', label: t('low') }
   ], { value: data.priority || 'medium' });
+  const energyS = select([
+    { value: 'high', label: t('high') },
+    { value: 'medium', label: t('medium') },
+    { value: 'low', label: t('low') }
+  ], { value: data.energy || 'medium' });
+  const contextS = select([
+    { value: 'computer', label: t('ctx_computer') },
+    { value: 'phone',    label: t('ctx_phone') },
+    { value: 'anywhere', label: t('ctx_anywhere') },
+    { value: 'errands',  label: t('ctx_errands') }
+  ], { value: data.context || 'computer' });
   const statusS = select([
     { value: 'todo', label: t('task_status_todo') },
     { value: 'doing', label: t('task_status_doing') },
@@ -257,6 +331,29 @@ function openTaskModal(existing, defaultProjectId) {
   ], { value: data.status || 'todo' });
   const dueI = input({ value: data.dueDate ? data.dueDate.slice(0,10) : '', type: 'date' });
   const estI = input({ value: data.estimatedMinutes || '', type: 'number', placeholder: '0' });
+
+  // Optional subtasks list
+  const subtasksWrap = el('div', { class: 'col gap-8', style: { marginTop: '8px' } });
+  if (data.subtasks && data.subtasks.length) {
+    data.subtasks.forEach((s) => {
+      subtasksWrap.appendChild(el('div', { class: 'task-chip', style: { padding: '6px 10px' } }, '• ' + s));
+    });
+  }
+
+  const breakdownBtn = el('button', {
+    class: 'btn',
+    onClick: () => {
+      if (!titleI.value.trim()) { toast(t('required'), 'error'); return; }
+      const steps = breakdownTask(titleI.value);
+      data.subtasks = steps;
+      subtasksWrap.innerHTML = '';
+      steps.forEach((s) => {
+        subtasksWrap.appendChild(el('div', { class: 'task-chip', style: { padding: '6px 10px' } }, '• ' + s));
+      });
+      toast(t('saved'), 'success');
+    }
+  });
+  breakdownBtn.innerHTML = icon('zap') + ' ' + t('ai_breakdown');
 
   const m = modal({
     title: existing ? t('edit') + ' ' + t('task') : t('new_task'),
@@ -268,10 +365,16 @@ function openTaskModal(existing, defaultProjectId) {
         field(t('priority'), priorityS),
       ),
       el('div', { class: 'detail-grid' },
+        field(t('energy_required'), energyS),
+        field(t('context_label'), contextS),
+      ),
+      el('div', { class: 'detail-grid' },
         field(t('status'), statusS),
         field(t('due_date'), dueI),
       ),
-      field(t('estimated_minutes'), estI)
+      field(t('estimate_time') + ' (' + t('minutes') + ')', estI),
+      el('div', { style: { marginTop: '4px' } }, breakdownBtn),
+      subtasksWrap
     ),
     footer: [
       existing ? el('button', { class: 'btn btn--danger', onClick: async () => {
@@ -288,6 +391,8 @@ function openTaskModal(existing, defaultProjectId) {
           description: descI.value,
           projectId: projectS.value || null,
           priority: priorityS.value,
+          energy: energyS.value,
+          context: contextS.value,
           status,
           dueDate: dueI.value || null,
           estimatedMinutes: parseInt(estI.value) || null,

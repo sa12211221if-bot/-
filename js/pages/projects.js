@@ -10,6 +10,57 @@ const STATUSES = ['idea', 'active', 'in_progress', 'review', 'done'];
 
 let currentView = 'kanban';
 
+/**
+ * Compute project health.
+ * Inputs: progress vs deadline, overdue tasks, days since last activity.
+ * Returns: { level: 'good'|'warning'|'critical', score: 0-100, reasons: [] }
+ */
+function projectHealth(project) {
+  const tasks = sel.tasksForProject(project.id);
+  const total = tasks.length;
+  const done = tasks.filter((t) => t.status === 'done').length;
+  const overdue = tasks.filter((t) => t.status !== 'done' && t.dueDate && new Date(t.dueDate) < new Date()).length;
+  const progress = total ? done / total : (project.progress || 0) / 100;
+
+  const reasons = [];
+  let score = 80;
+
+  // Deadline pressure
+  if (project.dueDate) {
+    const daysToDue = (new Date(project.dueDate) - Date.now()) / 86400000;
+    if (daysToDue < 0 && project.status !== 'done') {
+      score -= 40;
+      reasons.push(getLang() === 'ar' ? 'تجاوز الموعد النهائي' : 'Deadline passed');
+    } else if (daysToDue < 3 && progress < 0.7) {
+      score -= 25;
+      reasons.push(getLang() === 'ar' ? 'الموعد قريب والتقدّم متأخر' : 'Deadline near, progress low');
+    } else if (daysToDue < 7 && progress < 0.5) {
+      score -= 10;
+      reasons.push(getLang() === 'ar' ? 'يحتاج اهتمام' : 'Needs attention');
+    }
+  }
+
+  // Overdue tasks
+  if (overdue > 0) {
+    score -= overdue * 8;
+    reasons.push(getLang() === 'ar' ? `${overdue} مهام متأخرة` : `${overdue} overdue task${overdue > 1 ? 's' : ''}`);
+  }
+
+  // Stagnation: days since last activity (any task update or time log)
+  const taskActivity = tasks.map((t) => t.updatedAt || 0).reduce((a, b) => Math.max(a, b), 0);
+  const projectActivity = project.updatedAt || project.createdAt || 0;
+  const lastActivity = Math.max(taskActivity, projectActivity);
+  const daysSince = lastActivity ? Math.floor((Date.now() - lastActivity) / 86400000) : 0;
+  if (daysSince > 14 && project.status !== 'done' && project.status !== 'archived') {
+    score -= 15;
+    reasons.push(getLang() === 'ar' ? `لا نشاط منذ ${daysSince} يوم` : `No activity for ${daysSince}d`);
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  const level = score >= 70 ? 'good' : score >= 40 ? 'warning' : 'critical';
+  return { level, score, reasons, daysSince, overdue, progress: Math.round(progress * 100) };
+}
+
 export async function renderProjects({ params }) {
   const root = el('div', {});
   const state = getState();
@@ -122,6 +173,7 @@ function kanbanCard(project) {
   const progress = tasks.length ? Math.round((done / tasks.length) * 100) : (project.progress || 0);
   const dueClass = project.dueDate && new Date(project.dueDate) < new Date() ? 'badge--danger' :
                    project.dueDate && daysBetween(new Date(), project.dueDate) <= 3 ? 'badge--warning' : '';
+  const health = projectHealth(project);
 
   const card = el('div', {
     class: 'kanban__card',
@@ -129,21 +181,32 @@ function kanbanCard(project) {
     onClick: () => openProjectDetails(project),
     ondragstart: (e) => { e.dataTransfer.setData('text/plain', project.id); card.classList.add('dragging'); },
     ondragend: () => card.classList.remove('dragging')
-  },
-    el('div', { style: { fontWeight: 600, marginBottom: '6px' } }, project.name),
-    client ? el('div', { class: 'text-sm text-muted', style: { marginBottom: '8px' } }, client.name) : null,
-    progress > 0 || tasks.length ? el('div', { style: { marginBottom: '8px' } },
+  });
+
+  const healthPill = el('span', { class: 'health-pill health-pill--' + health.level, title: health.reasons.join(', ') });
+  healthPill.innerHTML = `<span class="dot dot--${health.level === 'good' ? 'success' : health.level === 'warning' ? 'warning' : 'danger'}"></span>${t('health_' + health.level)}`;
+
+  const titleRow = el('div', { class: 'row justify-between items-center', style: { marginBottom: '6px', gap: '8px' } });
+  titleRow.appendChild(el('div', { style: { fontWeight: 600, flex: 1, minWidth: 0 }, class: 'truncate' }, project.name));
+  titleRow.appendChild(healthPill);
+  card.appendChild(titleRow);
+
+  if (client) card.appendChild(el('div', { class: 'text-sm text-muted', style: { marginBottom: '8px' } }, client.name));
+
+  if (progress > 0 || tasks.length) {
+    card.appendChild(el('div', { style: { marginBottom: '8px' } },
       el('div', { class: 'progress' },
         el('div', { class: 'progress__fill', style: { width: progress + '%' } })
       ),
       el('div', { class: 'text-sm text-muted', style: { marginTop: '4px' } }, `${done}/${tasks.length} · ${progress}%`)
-    ) : null,
-    el('div', { class: 'row gap-8 flex-wrap' },
-      project.dueDate ? badge(fmtRelative(project.dueDate), dueClass.replace('badge--', '')) : null,
-      project.budget ? badge(fmtCurrency(project.budget), 'accent') : null,
-      project.priority ? badge(t(project.priority), project.priority === 'high' ? 'danger' : 'muted') : null
-    )
-  );
+    ));
+  }
+
+  card.appendChild(el('div', { class: 'row gap-8 flex-wrap' },
+    project.dueDate ? badge(fmtRelative(project.dueDate), dueClass.replace('badge--', '')) : null,
+    project.budget ? badge(fmtCurrency(project.budget), 'accent') : null,
+    project.priority ? badge(t(project.priority), project.priority === 'high' ? 'danger' : 'muted') : null
+  ));
   return card;
 }
 
@@ -306,6 +369,27 @@ function openProjectDetails(project) {
   const progress = tasks.length ? Math.round((done / tasks.length) * 100) : (project.progress || 0);
   const timeLogs = getState().timeLogs.filter((l) => l.projectId === project.id);
   const totalMinutes = timeLogs.reduce((s, l) => s + (l.duration || 0), 0);
+  const health = projectHealth(project);
+
+  const healthCard = el('div', {
+    class: 'glass',
+    style: {
+      padding: '14px',
+      marginBottom: '14px',
+      borderColor: health.level === 'critical' ? 'rgba(239,68,68,0.3)' : health.level === 'warning' ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)'
+    }
+  });
+  healthCard.innerHTML = `
+    <div class="row justify-between items-center" style="margin-bottom:8px;">
+      <div class="row gap-8 items-center">
+        <span class="dot dot--${health.level === 'good' ? 'success' : health.level === 'warning' ? 'warning' : 'danger'}"></span>
+        <span style="font-weight:700;font-size:14px;">${t('project_health')}: ${t('health_' + health.level)}</span>
+      </div>
+      <span class="text-sm text-accent" style="font-variant-numeric:tabular-nums;">${health.score}/100</span>
+    </div>
+    ${health.reasons.length ? `<div class="text-sm text-muted">${health.reasons.join(' · ')}</div>` : `<div class="text-sm text-muted">${getLang() === 'ar' ? 'كل المؤشرات سليمة' : 'All indicators healthy'}</div>`}
+    ${health.daysSince > 0 ? `<div class="text-sm text-muted" style="margin-top:6px;">${t('last_activity')}: ${health.daysSince} ${getLang() === 'ar' ? 'يوم' : 'd'} ${t('days_since')}</div>` : ''}
+  `;
 
   const body = el('div', {},
     el('div', { class: 'row', style: { gap: '14px', marginBottom: '14px' } },
@@ -321,6 +405,7 @@ function openProjectDetails(project) {
         )
       )
     ),
+    healthCard,
     el('div', { class: 'detail-grid', style: { marginBottom: '14px' } },
       el('div', { class: 'glass', style: { padding: '14px' } },
         el('div', { class: 'text-muted text-sm' }, t('progress')),
