@@ -58,7 +58,7 @@ export async function renderSettings({ params } = {}) {
         tabs.querySelectorAll('.smart-filter').forEach((x) => x.classList.remove('active'));
         btn.classList.add('active');
       }
-    }, t('settings_tab_' + s.id) || sectionLabel(s.id));
+    }, sectionLabel(s.id));
     tabs.appendChild(btn);
   });
   root.insertBefore(tabs, grid);
