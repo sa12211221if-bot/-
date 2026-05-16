@@ -1088,6 +1088,8 @@ const dict = {
     tip_vitals_desc: 'Log energy and mood → AI uses this in suggestions',
     tip_install_title: 'Install the app',
     tip_install_desc: 'Works fully offline on your device',
+  }
+};
 
 export function t(key, fallback) {
   const lang = getState().lang || 'ar';
