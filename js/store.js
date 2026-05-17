@@ -1,6 +1,13 @@
 // Designer OS — App-wide reactive store backed by IndexedDB
 import { db, uid, STORE_NAMES } from './db.js';
 
+// Cloud sync hook (lazy — installed by app.js after cloud.js boots)
+let cloudHook = null;
+export function registerCloudHook(fn) { cloudHook = fn; }
+function notifyCloud(store, id, payload, deleted = false) {
+  if (cloudHook) try { cloudHook(store, id, payload, deleted); } catch(e) { console.error('[cloud]', e); }
+}
+
 const listeners = new Set();
 const state = {
   ready: false,
@@ -100,13 +107,16 @@ export async function upsert(store, value) {
   if (!value.id) value.id = uid();
   await db.put(store, value);
   state[store] = await db.getAll(store);
+  const stamped = await db.get(store, value.id) || value;
+  notifyCloud(store, stamped.id, stamped, false);
   emit();
-  return value;
+  return stamped;
 }
 
 export async function remove(store, id) {
   await db.delete(store, id);
   state[store] = await db.getAll(store);
+  notifyCloud(store, id, null, true);
   emit();
 }
 

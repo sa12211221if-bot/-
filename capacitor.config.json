@@ -1,0 +1,11 @@
+{
+  "appId": "com.abdsaif.app",
+  "appName": "عبد سيف",
+  "webDir": ".",
+  "bundledWebRuntime": false,
+  "server": { "androidScheme": "https" },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 1500, "backgroundColor": "#0b0b0f" },
+    "StatusBar": { "style": "DARK", "backgroundColor": "#0b0b0f" }
+  }
+}
