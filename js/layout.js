@@ -103,7 +103,7 @@ function buildSidebar(scrim) {
   const aside = el('aside', { class: 'sidebar' });
 
   aside.appendChild(el('div', { class: 'sidebar__brand' },
-    el('div', { class: 'sidebar__brand-logo' }, 'D'),
+    el('div', { class: 'sidebar__brand-logo' }, 'ع'),
     el('div', { class: 'sidebar__brand-text' },
       el('span', { class: 'sidebar__brand-name' }, t('appName')),
       el('span', { class: 'sidebar__brand-tag' }, t('command_center'))

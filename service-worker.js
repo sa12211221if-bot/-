@@ -1,6 +1,6 @@
-// Designer OS — Service Worker v1.2.0
+// عبد سيف — Service Worker v2.1.0
 // Strategy: Cache First for assets, Network First for navigation
-const VERSION = 'abd-saif-v2.0.0';
+const VERSION = 'abd-saif-v2.1.0';
 
 const PRECACHE = [
   './',

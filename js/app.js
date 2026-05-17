@@ -100,7 +100,7 @@ main().catch((err) => {
   console.error(err);
   document.getElementById('app').innerHTML =
     `<div style="padding: 40px; color: white; font-family: sans-serif;">
-       <h1>Failed to load Designer OS</h1>
+       <h1>فشل تحميل عبد سيف</h1>
        <pre>${err.message}\n${err.stack || ''}</pre>
      </div>`;
 });
