@@ -1,5 +1,5 @@
 // Designer OS — Service Worker (offline-first, network-falling-back-to-cache)
-const VERSION = 'designer-os-v1.0.0';
+const VERSION = 'abd-saif-v1.1.0';
 const CORE = [
   './',
   './index.html',
@@ -9,6 +9,8 @@ const CORE = [
   './js/router.js',
   './js/db.js',
   './js/store.js',
+  './js/cloud.js',
+  './js/auth.js',
   './js/i18n.js',
   './js/ui.js',
   './js/utils.js',

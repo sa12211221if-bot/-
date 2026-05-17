@@ -1,0 +1,2 @@
+# Tauri icons are generated automatically from ../../assets/icon-512.png
+# during the GitHub Actions build using: npx @tauri-apps/cli icon ../assets/icon-512.png

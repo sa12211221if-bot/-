@@ -1,7 +1,7 @@
 {
-  "name": "Designer OS",
-  "short_name": "DesignerOS",
-  "description": "Personal management system for freelance designers — clients, projects, tasks, focus, invoices, goals.",
+  "name": "عبد سيف",
+  "short_name": "عبد سيف",
+  "description": "نظامك الشخصي لإدارة العمل الإبداعي — العملاء، المشاريع، المهام، التركيز، الفواتير، الأهداف.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -33,19 +33,19 @@
   ],
   "shortcuts": [
     {
-      "name": "Focus",
-      "short_name": "Focus",
+      "name": "وضع التركيز",
+      "short_name": "تركيز",
       "url": "./#/focus",
-      "description": "Start a Pomodoro session"
+      "description": "ابدأ جلسة بومودورو"
     },
     {
-      "name": "New Task",
-      "short_name": "Task",
+      "name": "مهمة جديدة",
+      "short_name": "مهمة",
       "url": "./#/tasks?new=1"
     },
     {
-      "name": "Dashboard",
-      "short_name": "Home",
+      "name": "الرئيسية",
+      "short_name": "الرئيسية",
       "url": "./#/"
     }
   ]

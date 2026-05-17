@@ -6,6 +6,7 @@ import { getState, setSetting, refreshAll } from '../store.js';
 import { db } from '../db.js';
 import { input, field, select, toast, applyAccent, modal, confirmDialog } from '../ui.js';
 import { seedSampleData } from '../seed.js';
+import { buildAccountPanel } from '../auth.js';
 
 const ACCENT_COLORS = [
   '#FF6B35', '#FF8A3D', '#F4A261', '#E76F51', '#FF4D6D',
@@ -23,6 +24,15 @@ export async function renderSettings() {
   ));
 
   const grid = el('div', { class: 'col gap-20' });
+
+  // Account & cloud sync
+  const rerender = () => {
+    renderSettings().then((n) => {
+      const ct = document.getElementById('content');
+      ct.innerHTML = ''; ct.appendChild(n);
+    });
+  };
+  grid.appendChild(buildAccountPanel(rerender));
 
   // Language
   const langPanel = el('div', { class: 'glass panel' });

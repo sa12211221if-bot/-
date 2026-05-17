@@ -3,7 +3,7 @@ import { getState, setSetting, subscribe } from './store.js';
 
 const dict = {
   ar: {
-    appName: 'Designer OS',
+    appName: 'عبد سيف',
     tagline: 'نظامك الشخصي لإدارة العمل الإبداعي',
     // Nav
     nav_dashboard: 'الرئيسية',
@@ -290,7 +290,7 @@ const dict = {
     install_pwa_hint: 'يمكنك تثبيت التطبيق على جهازك للوصول السريع',
   },
   en: {
-    appName: 'Designer OS',
+    appName: 'Abd Saif',
     tagline: 'Your personal management system for creative work',
     nav_dashboard: 'Dashboard',
     nav_clients: 'Clients',
