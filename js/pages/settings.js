@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { t, getLang, setLang, fmtDate } from '../i18n.js';
 import { getState, setSetting, refreshAll } from '../store.js';
 import { db } from '../db.js';
+import { buildAccountPanel } from '../auth.js';
 import { input, field, select, toast, applyAccent, modal, confirmDialog } from '../ui.js';
 import { seedSampleData } from '../seed.js';
 import { AVAILABLE_MODELS, testConnection as testAi } from '../aiClient.js';
@@ -31,6 +32,11 @@ export async function renderSettings({ params } = {}) {
 
   // Section anchors for deep-linking
   const grid = el('div', { class: 'col gap-20' });
+
+  // Account & Cloud Sync panel (always on top)
+  const rerender = () => renderSettings().then(n => { const ct = document.getElementById('content'); ct.innerHTML = ''; ct.appendChild(n); });
+  grid.appendChild(buildAccountPanel(rerender));
+
   root.appendChild(grid);
 
   // Build each section as { id, render } — order matters for tab list

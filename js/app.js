@@ -1,5 +1,5 @@
 // Designer OS — Main entry point (v3)
-import { loadAll, getState, subscribe } from './store.js';
+import { loadAll, getState, subscribe, registerCloudHook } from './store.js';
 import { applyLang } from './i18n.js';
 import { applyAccent } from './ui.js';
 import { buildShell, applyTheme } from './layout.js';
@@ -10,6 +10,7 @@ import { startScheduler } from './notifications.js';
 import { startPolling as startTelegramPolling } from './integrations/telegram.js';
 import { startAutoSync as startNotionAutoSync } from './integrations/notion.js';
 import { autoProgressActive } from './challenges.js';
+import { bootCloud, notifyLocalChange } from './cloud.js';
 
 // Primary pages
 import { renderDashboard } from './pages/dashboard.js';
@@ -34,6 +35,10 @@ import { renderCalculator } from './pages/calculator.js';
 
 async function main() {
   await loadAll();
+
+  // Cloud sync
+  registerCloudHook(notifyLocalChange);
+  bootCloud().catch(e => console.warn('[cloud] boot:', e));
 
   applyLang();
   if (getState().accent) applyAccent(getState().accent);

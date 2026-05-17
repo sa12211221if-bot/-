@@ -1,6 +1,6 @@
 // Designer OS — Service Worker v1.2.0
 // Strategy: Cache First for assets, Network First for navigation
-const VERSION = 'designer-os-v1.2.0';
+const VERSION = 'abd-saif-v2.0.0';
 
 const PRECACHE = [
   './',
@@ -11,6 +11,8 @@ const PRECACHE = [
   './js/router.js',
   './js/db.js',
   './js/store.js',
+  './js/cloud.js',
+  './js/auth.js',
   './js/i18n.js',
   './js/ui.js',
   './js/utils.js',
