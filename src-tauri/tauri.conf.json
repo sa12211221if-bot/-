@@ -1,0 +1,70 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "../",
+    "distDir": "../",
+    "withGlobalTauri": false
+  },
+  "package": {
+    "productName": "عبد سيف",
+    "version": "1.0.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": {
+        "all": false,
+        "open": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "targets": ["msi", "nsis", "deb", "appimage", "dmg"],
+      "identifier": "com.abdsaif.app",
+      "publisher": "abdsaif",
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "resources": [],
+      "externalBin": [],
+      "copyright": "© 2026 عبد سيف",
+      "category": "Productivity",
+      "shortDescription": "نظام إدارة العمل الإبداعي",
+      "longDescription": "عبد سيف — نظام شخصي متكامل لإدارة العملاء، المشاريع، المهام، الفواتير، والأهداف.",
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": "",
+        "wix": {
+          "language": ["ar-SA", "en-US"]
+        },
+        "nsis": {
+          "displayLanguageSelector": true,
+          "languages": ["Arabic", "English"]
+        }
+      }
+    },
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "title": "عبد سيف",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "center": true
+      }
+    ]
+  }
+}

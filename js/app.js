@@ -1,9 +1,10 @@
 // Designer OS — Main entry point
-import { loadAll, getState, subscribe } from './store.js';
+import { loadAll, getState, subscribe, registerCloudHook } from './store.js';
 import { applyLang } from './i18n.js';
 import { applyAccent } from './ui.js';
 import { buildShell, applyTheme } from './layout.js';
 import { registerRoute, setOutlet, start, navigate } from './router.js';
+import { bootCloud, notifyLocalChange } from './cloud.js';
 
 import { renderDashboard } from './pages/dashboard.js';
 import { renderClients } from './pages/clients.js';
@@ -20,6 +21,11 @@ import { renderSettings } from './pages/settings.js';
 
 async function main() {
   await loadAll();
+
+  // Wire cloud sync: every local upsert/remove pushes a debounced delta.
+  registerCloudHook(notifyLocalChange);
+  // Restore saved Supabase config + session and start background polling.
+  bootCloud().catch((e) => console.warn('[cloud] boot:', e));
 
   applyLang();
   if (getState().accent) applyAccent(getState().accent);
