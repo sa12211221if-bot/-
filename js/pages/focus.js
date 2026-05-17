@@ -23,8 +23,8 @@ export async function renderFocus({ params }) {
     <svg width="0" height="0" style="position:absolute">
       <defs>
         <linearGradient id="timerGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#FF8A3D"/>
-          <stop offset="100%" stop-color="#FF5722"/>
+          <stop offset="0%" stop-color="#9B8DFF"/>
+          <stop offset="100%" stop-color="#6E5BF5"/>
         </linearGradient>
       </defs>
     </svg>`;

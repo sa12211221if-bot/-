@@ -7,21 +7,20 @@ import { t, getLang, setLang, isRTL, fmtDate } from './i18n.js';
 import { navigate, onRouteChange } from './router.js';
 import { getState, sel, subscribe } from './store.js';
 import { applyAccent } from './ui.js';
-import { MODES, MODE_LIST, activateMode, currentMode, cycleMode } from './modes.js';
 import { openCapture, bindCaptureHotkey } from './capture.js';
 import { nextPrayer, fmtCountdown } from './prayerTimes.js';
 
-// Navigation: 10 items (added /tips)
+// Navigation: clean lineup. Removed habits/reviews/tips from sidebar to reduce noise;
+// they remain reachable via routes for users who used them. Added /finance and /quotes.
 const NAV_ITEMS = [
   { path: '/',          key: 'command_center', icon: 'dashboard' },
   { path: '/tasks',     key: 'nav_tasks',      icon: 'check_circle' },
   { path: '/projects',  key: 'nav_projects',   icon: 'briefcase' },
   { path: '/calendar',  key: 'nav_calendar',   icon: 'calendar' },
+  { path: '/finance',   key: 'nav_finance',    icon: 'chart' },
+  { path: '/quotes',    key: 'nav_quotes',     icon: 'bulb' },
   { path: '/knowledge', key: 'nav_knowledge',  icon: 'database' },
-  { path: '/habits',    key: 'nav_habits',     icon: 'flame' },
-  { path: '/reviews',   key: 'nav_reviews',    icon: 'bookmark' },
   { path: '/assistant', key: 'nav_assistant',  icon: 'zap', accent: true },
-  { path: '/tips',      key: 'nav_tips',       icon: 'info' },
   { path: '/settings',  key: 'nav_settings',   icon: 'settings' }
 ];
 
@@ -78,20 +77,11 @@ export function buildShell() {
 
   subscribe(() => {
     updateBadges(sidebar);
-    const pill = topbar.querySelector('.mode-pill');
-    if (pill) refreshModePill(pill);
     refreshPrayerWidget(topbar);
   });
   updateBadges(sidebar);
 
   bindCaptureHotkey();
-  document.addEventListener('keydown', (e) => {
-    const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    if (e.key.toLowerCase() === 'm' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      cycleMode();
-    }
-  });
 
   startClock(topbar);
   startPrayerWidget(topbar);
@@ -184,10 +174,6 @@ function buildTopbar(sidebar, scrim) {
 
   bar.appendChild(el('div', { class: 'topbar__spacer' }));
 
-  // Mode pill
-  const pill = buildModePill();
-  bar.appendChild(pill);
-
   // Capture button
   const captureBtn = el('button', { class: 'btn btn--primary topbar__capture', onClick: () => openCapture() });
   captureBtn.innerHTML = icon('plus') + ' <span class="topbar__capture-label">' + t('capture') + '</span>';
@@ -204,62 +190,6 @@ function buildTopbar(sidebar, scrim) {
   bar.appendChild(notifBtn);
 
   return bar;
-}
-
-function buildModePill() {
-  const pill = el('button', { class: 'mode-pill', onClick: openModeMenu });
-  refreshModePill(pill);
-  return pill;
-}
-
-function refreshModePill(pill) {
-  const m = currentMode();
-  pill.dataset.mode = m.id;
-  pill.innerHTML = `
-    <span class="mode-pill__dot"></span>
-    <span class="mode-pill__icon">${icon(m.icon, { size: 14 })}</span>
-    <span class="mode-pill__label">${t(m.nameKey)}</span>
-    <span class="mode-pill__chev">${icon('chevron_down', { size: 14 })}</span>
-  `;
-}
-
-function openModeMenu() {
-  const existing = document.querySelector('.mode-menu');
-  if (existing) { existing.remove(); return; }
-  const menu = el('div', { class: 'mode-menu glass' });
-  MODE_LIST.forEach((m) => {
-    const isActive = currentMode().id === m.id;
-    const item = el('button', {
-      class: 'mode-menu__item' + (isActive ? ' active' : ''),
-      onClick: async () => { await activateMode(m.id); menu.remove(); }
-    });
-    item.innerHTML = `
-      <span class="mode-menu__icon" style="color:${m.accent2}">${icon(m.icon, { size: 18 })}</span>
-      <div class="mode-menu__text">
-        <div class="mode-menu__name">${t(m.nameKey)}</div>
-        <div class="mode-menu__desc">${t(m.descKey)}</div>
-      </div>
-      ${isActive ? `<span class="mode-menu__check">${icon('check', { size: 16 })}</span>` : ''}
-    `;
-    menu.appendChild(item);
-  });
-  const pill = document.querySelector('.mode-pill');
-  if (!pill) return;
-  document.body.appendChild(menu);
-  const r = pill.getBoundingClientRect();
-  menu.style.position = 'fixed';
-  menu.style.top = (r.bottom + 8) + 'px';
-  if (isRTL()) menu.style.right = (window.innerWidth - r.right) + 'px';
-  else menu.style.left = r.left + 'px';
-  menu.style.zIndex = 200;
-  setTimeout(() => {
-    document.addEventListener('click', function close(e) {
-      if (!menu.contains(e.target) && !pill.contains(e.target)) {
-        menu.remove();
-        document.removeEventListener('click', close);
-      }
-    });
-  }, 50);
 }
 
 function buildBottomNav() {
@@ -337,10 +267,6 @@ function refreshPrayerWidget(topbar) {
     return;
   }
   widget.classList.remove('hidden');
-  const isIslamic = state.mode === 'islamic';
-  if (isIslamic) widget.classList.add('topbar__prayer--islamic');
-  else widget.classList.remove('topbar__prayer--islamic');
-
   if (np.passed) {
     widget.innerHTML = `<span class="topbar__prayer-icon">🕌</span><span class="topbar__prayer-name">${t(np.name.toLowerCase())}</span><span class="topbar__prayer-time text-sm text-muted">${np.time}</span>`;
   } else {

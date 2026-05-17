@@ -1,6 +1,6 @@
-// عبد سيف — Service Worker v2.1.0
+// عبد سيف — Service Worker v3.0.0
 // Strategy: Cache First for assets, Network First for navigation
-const VERSION = 'abd-saif-v2.1.0';
+const VERSION = 'abd-saif-v3.0.0';
 
 const PRECACHE = [
   './',
@@ -38,6 +38,8 @@ const PRECACHE = [
   './js/pages/reviews.js',
   './js/pages/knowledge.js',
   './js/pages/assistant.js',
+  './js/pages/finance.js',
+  './js/pages/quotes.js',
   './assets/icon.svg',
   './assets/icon-192.png',
   './assets/icon-512.png'

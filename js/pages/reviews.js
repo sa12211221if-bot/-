@@ -469,8 +469,8 @@ function buildSparkline(data) {
     <path d="${path}" fill="none" stroke="url(#lineGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
     <defs>
       <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#FF8A3D"/>
-        <stop offset="100%" stop-color="#FF5722"/>
+        <stop offset="0%" stop-color="#9B8DFF"/>
+        <stop offset="100%" stop-color="#6E5BF5"/>
       </linearGradient>
     </defs>
   </svg>`;

@@ -13,7 +13,7 @@ const state = {
   ready: false,
   lang: 'ar',
   theme: 'dark',
-  accent: '#FF6B35',
+  accent: '#7C6BFF',
   currency: 'IQD',
   // Pricing model: per-task / per-revision (NOT hourly)
   defaultTaskPrice: 50000,
@@ -66,6 +66,8 @@ const state = {
   vitals: [], aiSuggestions: [],
   chatThreads: [], chatMessages: [], notifications: [], challenges: [], rewards: [],
   syncLog: [],
+  // v4 — finance + quotes
+  finance: [], financeGoals: [], quotes: [],
   // ephemeral
   activeFocus: null,
   activeChatThreadId: null
@@ -277,5 +279,58 @@ export const sel = {
   // Notifications pending
   pendingNotifications: () => state.notifications.filter((n) => !n.delivered && new Date(n.scheduledAt) <= new Date()),
   // Tips
-  tipDismissed: (id) => (state.tipsDismissed || []).includes(id)
+  tipDismissed: (id) => (state.tipsDismissed || []).includes(id),
+
+  // ============ FINANCE ============
+  // Returns income/expense totals for a given month/year (defaults to current).
+  financeMonth: (m, y) => {
+    m = m ?? new Date().getMonth();
+    y = y ?? new Date().getFullYear();
+    const rows = (state.finance || []).filter((f) => {
+      const d = new Date(f.date);
+      return d.getMonth() === m && d.getFullYear() === y;
+    });
+    const income  = rows.filter((r) => r.type === 'income' ).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const expense = rows.filter((r) => r.type === 'expense').reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    return { income, expense, net: income - expense, count: rows.length };
+  },
+  financeYear: (y) => {
+    y = y ?? new Date().getFullYear();
+    const rows = (state.finance || []).filter((f) => new Date(f.date).getFullYear() === y);
+    const income  = rows.filter((r) => r.type === 'income' ).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const expense = rows.filter((r) => r.type === 'expense').reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    return { income, expense, net: income - expense, count: rows.length };
+  },
+  // Active goals for current month / current year (the ones to display on dashboard).
+  currentMonthlyGoal: () => {
+    const m = new Date().getMonth(), y = new Date().getFullYear();
+    return (state.financeGoals || []).find((g) => g.period === 'monthly' && g.month === m && g.year === y);
+  },
+  currentYearlyGoal: () => {
+    const y = new Date().getFullYear();
+    return (state.financeGoals || []).find((g) => g.period === 'yearly' && g.year === y);
+  },
+  // Group expenses by category for charts.
+  financeByCategory: (m, y) => {
+    m = m ?? new Date().getMonth();
+    y = y ?? new Date().getFullYear();
+    const rows = (state.finance || []).filter((f) => {
+      const d = new Date(f.date);
+      return d.getMonth() === m && d.getFullYear() === y && f.type === 'expense';
+    });
+    const map = {};
+    rows.forEach((r) => {
+      const cat = r.category || 'other';
+      map[cat] = (map[cat] || 0) + (Number(r.amount) || 0);
+    });
+    return map;
+  },
+
+  // ============ QUOTES ============
+  randomQuote: () => {
+    const list = state.quotes || [];
+    if (!list.length) return null;
+    return list[Math.floor(Math.random() * list.length)];
+  },
+  favoriteQuotes: () => (state.quotes || []).filter((q) => q.favorite)
 };

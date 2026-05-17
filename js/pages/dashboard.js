@@ -1,576 +1,236 @@
-// Designer OS — Command Center (Dashboard v3)
-// Hero focus + Pulse + Vitals + AI suggestions + Daily summary
-// + Active challenge + Prayer countdown (Islamic mode) + Tips quick-strip
-
+// عبد سيف — Dashboard (clean redesign)
+// Per user feedback: minimal, calm, 4 sections only.
+//   1. Greeting + quote of the moment
+//   2. Today's focus (one task — the most important right now)
+//   3. Today's snapshot (income, tasks, focus minutes)
+//   4. Monthly financial goal progress
 import { el, fmtDuration } from '../utils.js';
 import { icon } from '../icons.js';
-import { t, fmtDate, fmtRelative, getLang } from '../i18n.js';
+import { t, getLang, fmtCurrency, fmtNumber } from '../i18n.js';
 import { getState, sel, upsert, setFocusNow } from '../store.js';
 import { navigate } from '../router.js';
-import { generateSuggestions, generateDailySummary, applySuggestion } from '../ai.js';
-import { activateMode } from '../modes.js';
 import { openCapture } from '../capture.js';
-import { ensureDailyChallenge, acceptChallenge, completeChallenge, skipChallenge } from '../challenges.js';
-import { nextPrayer, fmtCountdown } from '../prayerTimes.js';
 
-let prayerCountdownTimer = null;
+const ar = () => getLang() === 'ar';
+const L = (a, e) => (ar() ? a : e);
 
 export async function renderDashboard() {
+  const root = el('div', { class: 'reveal dashboard-clean' });
   const state = getState();
-  const root = el('div', { class: 'reveal' });
 
-  // Auto-suggest a challenge if none is active (fire and forget)
-  ensureDailyChallenge().catch(() => {});
-
-  // ============================================================
-  // PRAYER COUNTDOWN BAR (when Islamic mode + prayer times available)
-  // ============================================================
-  if (state.mode === 'islamic') {
-    root.appendChild(renderPrayerStrip());
-  }
-
-  // ============================================================
-  // HERO FOCUS
-  // ============================================================
+  // 1) Greeting + quote
   root.appendChild(renderHero(state));
 
-  // ============================================================
-  // ACTIVE CHALLENGE (full-width strip if pending or active)
-  // ============================================================
-  const challengeRow = renderChallengeRow();
-  if (challengeRow) root.appendChild(challengeRow);
+  // 2) Today's focus task (most important pending task)
+  root.appendChild(renderTodayFocus(state));
 
-  // ============================================================
-  // TWO COLUMN
-  // ============================================================
-  const grid = el('div', { class: 'cc-grid' });
-  const left = el('div', {});
-  left.appendChild(renderPulse());
-  left.appendChild(renderVitals());
-  grid.appendChild(left);
+  // 3) Snapshot stats (3 cards: tasks today, finance today, focus minutes)
+  root.appendChild(renderSnapshot(state));
 
-  const right = el('div', {});
-  right.appendChild(renderAssistant());
-  right.appendChild(renderSummary());
-  grid.appendChild(right);
-  root.appendChild(grid);
-
-  // ============================================================
-  // TIPS QUICK STRIP (full width, dismissable)
-  // ============================================================
-  root.appendChild(renderTipsStrip());
+  // 4) Monthly goal progress
+  root.appendChild(renderGoalProgress(state));
 
   return root;
 }
 
 // ============================================================
-// PRAYER COUNTDOWN STRIP (Islamic mode only)
+// 1) Hero — greeting + rotating quote
 // ============================================================
-function renderPrayerStrip() {
-  const np = nextPrayer();
-  const ar = getLang() === 'ar';
+function renderHero(state) {
+  const hour = new Date().getHours();
+  let greet;
+  if (ar()) greet = hour < 5 ? 'ليلة هادئة' : hour < 12 ? 'صباح الخير' : hour < 18 ? 'مساء النور' : 'مساء الخير';
+  else greet = hour < 5 ? 'Quiet night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
-  if (!np) {
-    // Not configured yet
-    const wrap = el('div', { class: 'glass panel prayer-strip prayer-strip--empty' });
-    wrap.innerHTML = `
-      <div class="row justify-between items-center" style="gap:12px;">
-        <div class="row gap-12 items-center">
-          <span style="color:var(--accent-2)">${icon('star', { size: 20 })}</span>
-          <div>
-            <div style="font-weight:700;">${t('prayer_settings')}</div>
-            <div class="text-sm text-muted">${ar ? 'اضبط موقعك لتظهر مواقيت الصلاة' : 'Set your location to see prayer times'}</div>
-          </div>
-        </div>
+  const wrap = el('div', { class: 'glass panel hero-clean' });
+  const quote = sel.randomQuote();
+
+  wrap.innerHTML = `
+    <div class="hero-clean__greet">${greet}</div>
+    ${quote ? `
+      <div class="hero-clean__quote">
+        <div class="hero-clean__quote-mark">"</div>
+        <div class="hero-clean__quote-text">${escapeHtml(quote.text)}</div>
+        ${quote.author ? `<div class="hero-clean__quote-author">— ${escapeHtml(quote.author)}</div>` : ''}
       </div>
-    `;
-    const btn = el('button', { class: 'btn btn--primary btn--sm', onClick: () => navigate('/settings', { section: 'prayer' }) });
-    btn.innerHTML = icon('settings') + ' ' + t('prayer_settings');
-    wrap.querySelector('.row').appendChild(btn);
-    return wrap;
+    ` : `
+      <div class="hero-clean__cta-line text-sm text-muted">
+        ${L('أضف عبارة تحبها لتظهر هنا كل مرة', 'Add a quote you love — it shows here every visit')}
+      </div>
+    `}
+  `;
+  if (!quote) {
+    const b = el('button', { class: 'btn btn--sm', onClick: () => navigate('/quotes'), style: { marginTop: '10px' } });
+    b.innerHTML = icon('plus', { size: 14 }) + ' ' + L('أضف عبارة', 'Add quote');
+    wrap.appendChild(b);
   }
-
-  const wrap = el('div', { class: 'glass panel prayer-strip' });
-  const refresh = () => {
-    const nowNp = nextPrayer();
-    if (!nowNp) return;
-    const ms = nowNp.msUntil;
-    const lbl = nowNp.passed
-      ? (ar ? 'صلاة الفجر غداً' : 'Tomorrow\'s Fajr')
-      : t('next_prayer') + ': ' + t(nowNp.name.toLowerCase());
-    wrap.innerHTML = `
-      <div class="row justify-between items-center" style="gap:12px;flex-wrap:wrap;">
-        <div class="row gap-12 items-center">
-          <span style="color:var(--accent-2);font-size:22px;">🕌</span>
-          <div>
-            <div style="font-weight:700;font-size:14px;">${lbl}</div>
-            <div class="text-sm text-muted">${nowNp.time || ''} · ${getState().prayerTimes?.location?.city || ''}</div>
-          </div>
-        </div>
-        <div class="row gap-8 items-center">
-          <div class="text-2xl font-mono" style="color:var(--accent-2);">${ms != null ? fmtCountdown(ms) : '—'}</div>
-          <span class="text-sm text-muted">${t('until_prayer')}</span>
-        </div>
-      </div>
-    `;
-  };
-  refresh();
-
-  // Update every second while visible
-  if (prayerCountdownTimer) clearInterval(prayerCountdownTimer);
-  prayerCountdownTimer = setInterval(() => {
-    if (!wrap.isConnected) { clearInterval(prayerCountdownTimer); prayerCountdownTimer = null; return; }
-    refresh();
-  }, 1000);
-
   return wrap;
 }
 
 // ============================================================
-// HERO FOCUS
+// 2) Today's focus — single most important task
 // ============================================================
-function renderHero(state) {
+function renderTodayFocus(state) {
   const candidate = sel.focusCandidate();
-  const ar = getLang() === 'ar';
-  const greeting = greetingForHour(new Date().getHours());
+  const wrap = el('div', { class: 'glass panel hero-focus-clean' });
 
   if (!candidate) {
-    const empty = el('div', { class: 'hero-focus hero-focus--empty' });
-    empty.innerHTML = `
-      <div class="hero-focus__label">${greeting} ✨</div>
-      <h2 class="hero-focus__title">${ar ? 'كل شيء واضح' : 'You are clear'}</h2>
-      <div class="hero-focus__sub">${ar ? 'لا توجد مهام عاجلة. التقط فكرة، أو ابدأ مشروعاً جديداً.' : 'No pending tasks. Capture an idea or start something new.'}</div>
+    wrap.innerHTML = `
+      <div class="hero-focus-clean__label">${L('تركيز اليوم', 'Focus now')}</div>
+      <div class="hero-focus-clean__empty">
+        <div style="font-size:32px; margin-bottom:6px;">🎯</div>
+        <div style="font-weight:700; margin-bottom:4px;">${L('كل شي واضح', 'You are clear')}</div>
+        <div class="text-sm text-muted">${L('لا مهام عاجلة. التقط فكرة جديدة.', 'No urgent tasks. Capture something new.')}</div>
+      </div>
     `;
-    const captureBtn = el('button', { class: 'hero-focus__cta', onClick: () => openCapture() });
-    captureBtn.innerHTML = icon('plus') + ' ' + t('capture');
-    empty.appendChild(captureBtn);
-    return empty;
+    const captureBtn = el('button', { class: 'btn btn--primary', style: { marginTop: '12px' }, onClick: () => openCapture() });
+    captureBtn.innerHTML = icon('plus') + ' ' + L('التقاط سريع', 'Quick capture');
+    wrap.appendChild(captureBtn);
+    return wrap;
   }
 
   const project = candidate.projectId ? sel.projectById(candidate.projectId) : null;
-  const estimate = candidate.estimatedMinutes || candidate.estimateMin || 25;
-  const sessionLabel = estimate >= 60 ? t('deep_work_session') : t('quick_session');
-
-  const hero = el('div', { class: 'hero-focus' });
-  const left = el('div', {});
-  left.innerHTML = `
-    <div class="hero-focus__label">
-      ${icon('target', { size: 12 })}
-      ${t('focus_now')}
-    </div>
-    <h2 class="hero-focus__title">${escapeHtml(candidate.title)}</h2>
-    <div class="hero-focus__meta">
-      ${project ? `<span class="hero-focus__meta-item">${icon('briefcase', { size: 14 })} ${escapeHtml(project.name)}</span>` : ''}
-      <span class="hero-focus__meta-item">${icon('clock', { size: 14 })} ${estimate} ${t('minutes')}</span>
-      <span class="hero-focus__meta-item">${icon('flame', { size: 14 })} ${sessionLabel}</span>
-      ${candidate.priority === 'high' ? `<span class="hero-focus__meta-item" style="color: #fca5a5">${icon('alert', { size: 14 })} ${t('high')}</span>` : ''}
-    </div>
-  `;
-  hero.appendChild(left);
-
-  const action = el('div', { class: 'hero-focus__action' });
-  const cta = el('button', {
-    class: 'hero-focus__cta',
-    onClick: async () => {
-      await setFocusNow({ taskId: candidate.id, projectId: candidate.projectId, startedAt: Date.now(), plannedMinutes: estimate });
-      await activateMode('deep');
-      navigate('/focus');
-    }
-  });
-  cta.innerHTML = icon('play', { size: 18 }) + ' ' + t('start_focus');
-  action.appendChild(cta);
-  const alt = el('button', { class: 'hero-focus__alt', onClick: () => navigate('/tasks') });
-  alt.textContent = t('pick_focus');
-  action.appendChild(alt);
-  hero.appendChild(action);
-
-  return hero;
-}
-
-// ============================================================
-// CHALLENGE ROW
-// ============================================================
-function renderChallengeRow() {
-  const ch = sel.activeChallenge();
-  const pending = getState().challenges.find((c) => c.status === 'pending');
-  const target = ch || pending;
-  if (!target) return null;
-
-  const ar = getLang() === 'ar';
-  const wrap = el('div', { class: 'glass panel challenge-strip' });
-  const isPending = target.status === 'pending';
-  const progress = Math.min(100, Math.round(((target.progress || 0) / Math.max(1, target.target)) * 100));
+  const estimate = candidate.estimatedMinutes || 25;
 
   wrap.innerHTML = `
-    <div class="challenge-strip__head">
-      <div class="row gap-12 items-center">
-        <div class="challenge-strip__icon">${icon('flame', { size: 18 })}</div>
-        <div>
-          <div class="challenge-strip__label">${isPending ? t('challenge_pending') : t('challenge_active')}</div>
-          <div class="challenge-strip__title">${escapeHtml(target.title)}</div>
-          ${target.desc ? `<div class="text-sm text-muted">${escapeHtml(target.desc)}</div>` : ''}
-        </div>
-      </div>
+    <div class="hero-focus-clean__label">
+      ${icon('target', { size: 12 })}
+      ${L('تركيز الآن', 'Focus now')}
     </div>
-    ${!isPending ? `
-      <div class="challenge-strip__progress">
-        <div class="progress" style="margin-top:6px;"><div class="progress__fill" style="width:${progress}%"></div></div>
-        <div class="row justify-between text-sm" style="margin-top:4px;">
-          <span class="text-muted">${target.progress || 0} / ${target.target}</span>
-          <span class="text-accent">${progress}%</span>
-        </div>
-      </div>
-    ` : ''}
-    ${target.reward ? `<div class="challenge-strip__reward text-sm">🎁 ${escapeHtml(target.reward)}</div>` : ''}
-  `;
-
-  const actions = el('div', { class: 'challenge-strip__actions row gap-8 flex-wrap' });
-  if (isPending) {
-    const acceptBtn = el('button', { class: 'btn btn--primary', onClick: async () => { await acceptChallenge(target.id); } });
-    acceptBtn.innerHTML = icon('check') + ' ' + t('accept_challenge');
-    actions.appendChild(acceptBtn);
-
-    const skipBtn = el('button', { class: 'btn', onClick: async () => { await skipChallenge(target.id); } });
-    skipBtn.innerHTML = icon('x') + ' ' + t('skip_challenge');
-    actions.appendChild(skipBtn);
-  } else {
-    if (progress < 100) {
-      const completeBtn = el('button', { class: 'btn btn--success', onClick: async () => {
-        await completeChallenge(target.id);
-      }});
-      completeBtn.innerHTML = icon('check') + ' ' + t('complete_challenge');
-      actions.appendChild(completeBtn);
-    }
-    const skipBtn = el('button', { class: 'btn btn--ghost', onClick: async () => { await skipChallenge(target.id); } });
-    skipBtn.innerHTML = icon('x') + ' ' + t('skip_challenge');
-    actions.appendChild(skipBtn);
-  }
-  wrap.appendChild(actions);
-  return wrap;
-}
-
-// ============================================================
-// PULSE — top 3 tasks
-// ============================================================
-function renderPulse() {
-  const wrap = el('div', {});
-  const head = el('div', { class: 'section-head' });
-  head.innerHTML = `<h3 class="section-head__title">${t('pulse')} · ${t('today_tasks')}</h3>`;
-  const allBtn = el('button', { class: 'section-head__action', onClick: () => navigate('/tasks') });
-  allBtn.textContent = t('all') + ' →';
-  head.appendChild(allBtn);
-  wrap.appendChild(head);
-
-  const today = sel.todayTasks();
-  const overdue = sel.overdueTasks();
-  const top3 = [...overdue.slice(0, 2), ...today].slice(0, 3);
-
-  if (top3.length === 0) {
-    wrap.appendChild(el('div', { class: 'glass panel', style: { padding: '24px', textAlign: 'center' } },
-      el('div', { class: 'text-muted text-sm' }, t('no_tasks_today'))
-    ));
-    return wrap;
-  }
-
-  top3.forEach((task, idx) => {
-    const project = sel.projectById(task.projectId);
-    const card = el('div', {
-      class: 'pulse-card',
-      onClick: () => navigate('/tasks', { id: task.id })
-    });
-    const energyChip = task.energy ? `<span class="task-chip task-chip--energy-${task.energy}">${icon('flame', { size: 10 })} ${t(task.energy)}</span>` : '';
-    const ctxChip = task.context ? `<span class="task-chip">${t('ctx_' + task.context)}</span>` : '';
-    const estChip = task.estimatedMinutes ? `<span class="task-chip">${task.estimatedMinutes}${t('minutes_short')}</span>` : '';
-    card.innerHTML = `
-      <div class="pulse-card__num">${idx + 1}</div>
-      <div class="pulse-card__main">
-        <div class="pulse-card__title">${escapeHtml(task.title)}</div>
-        <div class="pulse-card__meta">
-          ${project ? `<span class="pulse-card__meta-item">${icon('briefcase', { size: 11 })} ${escapeHtml(project.name)}</span>` : ''}
-          ${energyChip}
-          ${ctxChip}
-          ${estChip}
-        </div>
-      </div>
-    `;
-    const done = el('button', {
-      class: 'btn btn--icon btn--ghost',
-      title: t('mark_done'),
-      onClick: async (e) => {
-        e.stopPropagation();
-        await upsert('tasks', { ...task, status: 'done', completedAt: Date.now() });
-      }
-    });
-    done.innerHTML = icon('check', { size: 16 });
-    card.appendChild(done);
-    card.style.marginBottom = '8px';
-    wrap.appendChild(card);
-  });
-
-  return wrap;
-}
-
-// ============================================================
-// VITALS
-// ============================================================
-function renderVitals() {
-  const wrap = el('div', { style: { marginTop: '20px' } });
-  const head = el('div', { class: 'section-head' });
-  head.innerHTML = `<h3 class="section-head__title">${t('mental_state')}</h3>`;
-  const logBtn = el('button', { class: 'section-head__action', onClick: openVitalsModal });
-  logBtn.textContent = '+ ' + t('log_state');
-  head.appendChild(logBtn);
-  wrap.appendChild(head);
-
-  const v = sel.latestVitals() || {};
-  const strip = el('div', { class: 'vitals-strip' });
-  const fields = [
-    { id: 'focus', key: 'vital_focus' },
-    { id: 'mood', key: 'vital_mood' },
-    { id: 'energy', key: 'vital_energy' },
-    { id: 'stress', key: 'vital_stress' },
-    { id: 'sleep', key: 'vital_sleep' },
-    { id: 'caffeine', key: 'vital_caffeine' }
-  ];
-  fields.forEach((f) => {
-    const val = v[f.id] || 0;
-    const segs = [1,2,3,4,5].map((i) =>
-      `<span class="vital__bar-segment ${i <= val ? 'filled' : ''}"></span>`
-    ).join('');
-    const cell = el('div', { class: 'vital', onClick: openVitalsModal });
-    cell.innerHTML = `
-      <div class="vital__label">${t(f.key)}</div>
-      <div class="vital__value">${val ? val + '/5' : '—'}</div>
-      <div class="vital__bar">${segs}</div>
-    `;
-    strip.appendChild(cell);
-  });
-  wrap.appendChild(strip);
-  return wrap;
-}
-
-function openVitalsModal() {
-  import('../ui.js').then(({ modal, toast }) => {
-    const v = sel.latestVitals() || {};
-    const fields = ['focus','mood','energy','stress','sleep','caffeine'];
-    const inputs = {};
-    const body = el('div', { class: 'col gap-12' });
-    fields.forEach((f) => {
-      const wrap = el('div', {});
-      wrap.innerHTML = `<div class="field__label" style="margin-bottom:6px">${t('vital_' + f)} — <span class="text-accent" id="val-${f}">${v[f] || 0}</span>/5</div>`;
-      const input = el('input', { type: 'range', min: '0', max: '5', step: '1', value: v[f] || 0, style: { width: '100%' } });
-      input.oninput = () => { wrap.querySelector('#val-' + f).textContent = input.value; };
-      inputs[f] = input;
-      wrap.appendChild(input);
-      body.appendChild(wrap);
-    });
-    const m = modal({
-      title: t('log_state'),
-      body,
-      footer: [
-        el('button', { class: 'btn', onClick: () => m.close() }, t('cancel')),
-        (() => {
-          const b = el('button', { class: 'btn btn--primary', onClick: async () => {
-            const payload = { date: new Date().toISOString() };
-            fields.forEach((f) => { payload[f] = parseInt(inputs[f].value) || 0; });
-            await upsert('vitals', payload);
-            toast(t('state_logged'), 'success');
-            m.close();
-          }});
-          b.textContent = t('save');
-          return b;
-        })()
-      ]
-    });
-  });
-}
-
-// ============================================================
-// ASSISTANT card
-// ============================================================
-function renderAssistant() {
-  const wrap = el('div', {});
-  const head = el('div', { class: 'section-head', style: { marginTop: 0 } });
-  head.innerHTML = `<h3 class="section-head__title">${t('ai_suggestions')}</h3>`;
-  const moreBtn = el('button', { class: 'section-head__action', onClick: () => navigate('/assistant') });
-  moreBtn.textContent = t('all') + ' →';
-  head.appendChild(moreBtn);
-  wrap.appendChild(head);
-
-  const suggestions = generateSuggestions().slice(0, 2);
-  if (suggestions.length === 0) {
-    wrap.appendChild(el('div', { class: 'glass panel', style: { padding: '20px', textAlign: 'center' } },
-      el('div', { class: 'text-muted text-sm' }, t('ai_no_suggestions'))
-    ));
-    return wrap;
-  }
-  suggestions.forEach((s) => wrap.appendChild(buildSuggestionCard(s)));
-  wrap.lastChild.style.marginBottom = '0';
-  return wrap;
-}
-
-function buildSuggestionCard(s) {
-  const card = el('div', { class: 'ai-card', style: { marginBottom: '10px' } });
-  card.innerHTML = `
-    <div class="ai-card__icon">${icon(s.icon || 'zap', { size: 18 })}</div>
-    <div class="ai-card__body">
-      <div class="ai-card__title">${escapeHtml(s.title)}</div>
-      <div class="ai-card__reason">${escapeHtml(s.reason || '')}</div>
+    <h2 class="hero-focus-clean__title">${escapeHtml(candidate.title)}</h2>
+    <div class="hero-focus-clean__meta">
+      ${project ? `<span class="task-chip">${icon('briefcase', { size: 12 })} ${escapeHtml(project.name)}</span>` : ''}
+      <span class="task-chip">${icon('clock', { size: 12 })} ${estimate} ${t('minutes')}</span>
+      ${candidate.priority === 'high' ? `<span class="task-chip" style="color:#fca5a5;background:rgba(239,68,68,.12);">${L('عالية', 'High')}</span>` : ''}
     </div>
   `;
-  const body = card.querySelector('.ai-card__body');
-  const actions = el('div', { class: 'ai-card__actions' });
-  const apply = el('button', { class: 'ai-card__btn ai-card__btn--primary', onClick: () => applySuggestion(s) });
-  apply.textContent = s.actionLabel || t('ai_apply');
-  actions.appendChild(apply);
-  const dismiss = el('button', { class: 'ai-card__btn', onClick: () => { card.style.display = 'none'; } });
-  dismiss.textContent = t('ai_dismiss');
-  actions.appendChild(dismiss);
-  body.appendChild(actions);
-  return card;
+  const row = el('div', { class: 'row gap-8 flex-wrap', style: { marginTop: '14px' } });
+  const start = el('button', { class: 'btn btn--primary', onClick: async () => {
+    await setFocusNow({ taskId: candidate.id, projectId: candidate.projectId, startedAt: Date.now(), plannedMinutes: estimate });
+    navigate('/focus');
+  }});
+  start.innerHTML = icon('play', { size: 16 }) + ' ' + L('ابدأ الآن', 'Start now');
+  const done = el('button', { class: 'btn btn--success', onClick: async () => {
+    await upsert('tasks', { ...candidate, status: 'done', completedAt: Date.now() });
+  }});
+  done.innerHTML = icon('check', { size: 16 }) + ' ' + L('تم', 'Done');
+  const skip = el('button', { class: 'btn btn--ghost', onClick: () => navigate('/tasks') });
+  skip.innerHTML = L('اختر مهمة ثانية', 'Pick another');
+  row.appendChild(start); row.appendChild(done); row.appendChild(skip);
+  wrap.appendChild(row);
+  return wrap;
 }
 
 // ============================================================
-// SUMMARY card
+// 3) Snapshot — 3 cards
 // ============================================================
-function renderSummary() {
-  const wrap = el('div', { style: { marginTop: '20px' } });
-  const head = el('div', { class: 'section-head' });
-  head.innerHTML = `<h3 class="section-head__title">${t('ai_summary_title')}</h3>`;
-  wrap.appendChild(head);
+function renderSnapshot(state) {
+  const grid = el('div', { class: 'stats-grid', style: { marginTop: '20px' } });
 
-  const summary = generateDailySummary();
-  const card = el('div', { class: 'glass panel', style: { padding: '18px' } });
-  card.innerHTML = `
-    <div style="display:flex; gap:12px; align-items:flex-start;">
-      <div style="width:36px;height:36px;border-radius:10px;background:var(--surface-strong);display:grid;place-items:center;color:var(--accent-2);flex-shrink:0;">
-        ${icon('bot', { size: 18 })}
-      </div>
-      <div style="flex:1;font-size:13.5px;line-height:1.65;color:var(--text-2);">${escapeHtml(summary)}</div>
-    </div>
-  `;
-  wrap.appendChild(card);
-
-  // Talk to AI button (if configured)
-  const aiBtn = el('button', { class: 'btn btn--block', style: { marginTop: '10px' }, onClick: () => navigate('/assistant') });
-  aiBtn.innerHTML = icon('bot') + ' ' + t('chat') + ' ✨';
-  wrap.appendChild(aiBtn);
-
-  // Quick streak strip
-  const streakStrip = el('div', { class: 'row gap-12 flex-wrap', style: { marginTop: '12px', justifyContent: 'space-between' } });
-  const streak = sel.streak();
+  const todayCount = sel.todayTasks().length;
+  const overdue = sel.overdueTasks().length;
+  const fin = sel.financeMonth();
   const focusMin = sel.focusMinutesToday();
-  const habitsDone = sel.habitsDoneToday();
-  const habitsTotal = getState().habits.length;
-  streakStrip.innerHTML = `
-    <span class="badge badge--accent">🔥 ${streak} ${t('days')}</span>
-    <span class="badge">⏱ ${fmtDuration(focusMin)}</span>
-    ${habitsTotal > 0 ? `<span class="badge">✓ ${habitsDone}/${habitsTotal} ${t('habits')}</span>` : ''}
-  `;
-  wrap.appendChild(streakStrip);
+  const streak = sel.streak();
 
-  return wrap;
+  // Tasks today
+  grid.appendChild(buildStat({
+    iconName: 'check_circle',
+    label: L('مهام اليوم', 'Tasks today'),
+    value: String(todayCount),
+    sub: overdue > 0 ? L(`+ ${overdue} متأخرة`, `+ ${overdue} overdue`) : L('كل شي تمام', 'All caught up'),
+    onClick: () => navigate('/tasks'),
+    color: overdue > 0 ? 'warn' : null
+  }));
+
+  // Net this month
+  grid.appendChild(buildStat({
+    iconName: 'chart',
+    label: L('صافي الشهر', 'Net this month'),
+    value: fmtCurrency(fin.net),
+    sub: L(`دخل ${fmtCurrency(fin.income)}`, `Income ${fmtCurrency(fin.income)}`),
+    onClick: () => navigate('/finance'),
+    color: fin.net >= 0 ? 'good' : 'bad'
+  }));
+
+  // Focus + streak
+  grid.appendChild(buildStat({
+    iconName: 'flame',
+    label: L('تركيز اليوم', 'Focus today'),
+    value: fmtDuration(focusMin),
+    sub: streak > 0 ? `🔥 ${streak} ${L('أيام متتالية', 'day streak')}` : L('ابدأ سلسلة جديدة', 'Start a streak'),
+    onClick: () => navigate('/focus')
+  }));
+
+  return grid;
 }
 
-// ============================================================
-// TIPS QUICK STRIP — non-dismissed tip cards (inline, top 3)
-// ============================================================
-function renderTipsStrip() {
-  const ar = getLang() === 'ar';
-  const state = getState();
-  const dismissed = state.tipsDismissed || [];
-
-  // Pick top 3 contextual tips
-  const allTips = [
-    { id: 'chat', condition: () => !state.geminiApiKey && !state.openaiApiKey, route: '/settings?section=ai',
-      title: t('tip_chat_title'), desc: t('tip_chat_desc'), iconName: 'bot' },
-    { id: 'notion', condition: () => !state.notionToken, route: '/settings?section=notion',
-      title: t('tip_notion_title'), desc: t('tip_notion_desc'), iconName: 'database' },
-    { id: 'telegram', condition: () => !state.telegramToken, route: '/settings?section=telegram',
-      title: t('tip_telegram_title'), desc: t('tip_telegram_desc'), iconName: 'send' },
-    { id: 'prayer', condition: () => !state.prayerCity && !state.prayerLat, route: '/settings?section=prayer',
-      title: t('tip_prayer_title'), desc: t('tip_prayer_desc'), iconName: 'star' },
-    { id: 'capture', condition: () => true, route: null, action: () => openCapture(),
-      title: t('tip_capture_title'), desc: t('tip_capture_desc'), iconName: 'plus' },
-    { id: 'modes', condition: () => true, route: null, action: () => import('../modes.js').then(m => m.cycleMode()),
-      title: t('tip_modes_title'), desc: t('tip_modes_desc'), iconName: 'layers' },
-    { id: 'review', condition: () => !sel.todayReview() && new Date().getHours() >= 17, route: '/reviews',
-      title: t('tip_review_title'), desc: t('tip_review_desc'), iconName: 'bookmark' },
-    { id: 'vitals', condition: () => !sel.latestVitals(), route: null, action: openVitalsModal,
-      title: t('tip_vitals_title'), desc: t('tip_vitals_desc'), iconName: 'battery' },
-    { id: 'install', condition: () => true, route: null,
-      title: t('tip_install_title'), desc: t('tip_install_desc'), iconName: 'download' }
-  ];
-  const candidates = allTips.filter((tp) => !dismissed.includes(tp.id) && tp.condition());
-  const picks = candidates.slice(0, 3);
-  if (picks.length === 0) return el('div', {});
-
-  const wrap = el('div', { style: { marginTop: '24px' } });
-  const head = el('div', { class: 'section-head' });
-  head.innerHTML = `<h3 class="section-head__title">${t('tips')}</h3>`;
-  const moreBtn = el('button', { class: 'section-head__action', onClick: () => navigate('/tips') });
-  moreBtn.textContent = t('tips_show_all') + ' →';
-  head.appendChild(moreBtn);
-  wrap.appendChild(head);
-
-  const grid = el('div', { class: 'tips-grid' });
-  picks.forEach((tp) => grid.appendChild(buildTipCard(tp)));
-  wrap.appendChild(grid);
-  return wrap;
-}
-
-function buildTipCard(tp) {
-  const card = el('div', { class: 'tip-card glass' });
+function buildStat({ iconName, label, value, sub, onClick, color }) {
+  const card = el('div', { class: 'stat glass', onClick });
+  card.style.cursor = 'pointer';
+  let valueColor = '';
+  if (color === 'good') valueColor = 'color:var(--success);';
+  else if (color === 'bad') valueColor = 'color:var(--danger);';
+  else if (color === 'warn') valueColor = 'color:var(--warning);';
   card.innerHTML = `
-    <div class="tip-card__icon">${icon(tp.iconName, { size: 18 })}</div>
-    <div class="tip-card__body">
-      <div class="tip-card__title">${escapeHtml(tp.title)}</div>
-      <div class="tip-card__desc text-sm text-muted">${escapeHtml(tp.desc)}</div>
+    <div class="stat__icon">${icon(iconName)}</div>
+    <div class="stat__label">${label}</div>
+    <div class="stat__value" style="${valueColor}">${value}</div>
+    <div class="stat__delta text-muted" style="color:var(--text-3);">${sub}</div>
+  `;
+  return card;
+}
+
+// ============================================================
+// 4) Goal progress — monthly
+// ============================================================
+function renderGoalProgress(state) {
+  const monthly = sel.currentMonthlyGoal();
+  const fin = sel.financeMonth();
+  const wrap = el('div', { class: 'glass panel', style: { marginTop: '20px' } });
+
+  if (!monthly) {
+    wrap.innerHTML = `
+      <div class="row justify-between" style="gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:700;font-size:14px;margin-bottom:2px;">${L('حدّد هدفك المالي للشهر', "Set this month's goal")}</div>
+          <div class="text-sm text-muted">${L('يساعدك تتابع تقدّمك بشكل واضح', 'See your progress at a glance')}</div>
+        </div>
+      </div>
+    `;
+    const b = el('button', { class: 'btn btn--primary', style: { marginTop: '10px' }, onClick: () => navigate('/finance') });
+    b.innerHTML = icon('flag') + ' ' + L('هدف الشهر', 'Set monthly goal');
+    wrap.appendChild(b);
+    return wrap;
+  }
+
+  const target = Number(monthly.target) || 1;
+  const pct = Math.min(100, (fin.income / target) * 100);
+  const remaining = Math.max(0, target - fin.income);
+  wrap.innerHTML = `
+    <div class="row justify-between items-center" style="margin-bottom:10px;">
+      <div class="row gap-8">
+        <span style="color:var(--accent-2)">${icon('flag')}</span>
+        <span style="font-weight:700; font-size:14px;">${L('هدف الشهر', 'Monthly goal')}</span>
+      </div>
+      <span class="badge badge--accent">${Math.round(pct)}%</span>
+    </div>
+    <div style="font-size:22px; font-weight:700; letter-spacing:-0.5px;">
+      ${fmtCurrency(fin.income)} <span class="text-muted text-sm" style="font-weight:500;">/ ${fmtCurrency(target)}</span>
+    </div>
+    <div class="progress" style="margin:10px 0; height:8px;"><div class="progress__fill" style="width:${pct}%"></div></div>
+    <div class="row justify-between text-sm text-muted">
+      <span>${L('الباقي للوصول', 'Remaining')}: <span class="font-mono" style="color:var(--text);">${fmtCurrency(remaining)}</span></span>
+      <span class="text-accent" style="cursor:pointer;" data-link>${L('التفاصيل', 'Details')} →</span>
     </div>
   `;
-  const actions = el('div', { class: 'tip-card__actions row gap-8' });
-  const goBtn = el('button', { class: 'btn btn--sm btn--primary', onClick: () => {
-    if (tp.action) tp.action();
-    else if (tp.route) {
-      // Parse route + ?section=...
-      const [path, qs] = tp.route.split('?');
-      const params = qs ? Object.fromEntries(new URLSearchParams(qs)) : {};
-      navigate(path, params);
-    }
-  }});
-  goBtn.textContent = t('tip_explore');
-  const dismissBtn = el('button', { class: 'btn btn--sm btn--ghost', onClick: async () => {
-    const dismissed = [...(getState().tipsDismissed || []), tp.id];
-    const { setSetting } = await import('../store.js');
-    await setSetting('tipsDismissed', dismissed);
-    card.style.display = 'none';
-  }});
-  dismissBtn.textContent = t('tip_dismiss');
-  actions.appendChild(goBtn);
-  actions.appendChild(dismissBtn);
-  card.appendChild(actions);
-  return card;
+  wrap.querySelector('[data-link]').onclick = () => navigate('/finance');
+  return wrap;
 }
 
 // ============================================================
 // helpers
 // ============================================================
 function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
-}
-
-function greetingForHour(h) {
-  const lang = getLang();
-  if (lang === 'ar') {
-    if (h < 5) return 'ليلة هادئة';
-    if (h < 12) return 'صباح الخير';
-    if (h < 18) return 'مساء النور';
-    return 'مساء الخير';
-  }
-  if (h < 5) return 'Quiet night';
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

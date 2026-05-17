@@ -14,7 +14,7 @@ import * as notion from '../integrations/notion.js';
 import * as telegram from '../integrations/telegram.js';
 
 const ACCENT_COLORS = [
-  '#FF6B35', '#FF8A3D', '#F4A261', '#E76F51', '#FF4D6D',
+  '#7C6BFF', '#9B8DFF', '#F4A261', '#E76F51', '#FF4D6D',
   '#7B2CBF', '#3A86FF', '#06B6D4', '#10B981', '#F59E0B'
 ];
 
@@ -600,7 +600,7 @@ function appearanceSection(state) {
   panel.appendChild(el('div', { class: 'field__label', style: { marginBottom: '8px' } }, t('accent_color')));
   const row = el('div', { class: 'row gap-8 flex-wrap' });
   ACCENT_COLORS.forEach((c) => {
-    const active = state.accent === c || (!state.accent && c === '#FF6B35');
+    const active = state.accent === c || (!state.accent && c === '#7C6BFF');
     row.appendChild(el('button', {
       style: {
         width: '36px', height: '36px', borderRadius: '50%', background: c,

@@ -19,6 +19,8 @@ const dict = {
     nav_calculator: 'حاسبة التسعير',
     nav_settings: 'الإعدادات',
     nav_inbox: 'صندوق الالتقاط',
+    nav_finance: 'الإدارة المالية',
+    nav_quotes: 'العبارات',
 
     // Common
     add: 'إضافة',
@@ -641,6 +643,8 @@ const dict = {
     nav_calculator: 'Calculator',
     nav_settings: 'Settings',
     nav_inbox: 'Inbox',
+    nav_finance: 'Finance',
+    nav_quotes: 'Quotes',
 
     add: 'Add', edit: 'Edit', delete: 'Delete', save: 'Save', cancel: 'Cancel', confirm: 'Confirm',
     search: 'Search', filter: 'Filter', all: 'All', none: 'None', yes: 'Yes', no: 'No',
