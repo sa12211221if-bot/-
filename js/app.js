@@ -23,6 +23,8 @@ import { renderReviews } from './pages/reviews.js';
 import { renderAssistant } from './pages/assistant.js';
 import { renderSettings } from './pages/settings.js';
 import { renderTips } from './pages/tips.js';
+import { renderFinance } from './pages/finance.js';
+import { renderQuotes } from './pages/quotes.js';
 
 // Legacy pages
 import { renderClients } from './pages/clients.js';
@@ -58,6 +60,8 @@ async function main() {
   registerRoute('/reviews',    (ctx) => renderReviews(ctx));
   registerRoute('/assistant',  (ctx) => renderAssistant(ctx));
   registerRoute('/tips',       (ctx) => renderTips(ctx));
+  registerRoute('/finance',    (ctx) => renderFinance(ctx));
+  registerRoute('/quotes',     (ctx) => renderQuotes(ctx));
   registerRoute('/settings',   (ctx) => renderSettings(ctx));
 
   // Legacy routes

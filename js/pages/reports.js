@@ -15,16 +15,16 @@ export async function renderReports() {
     <svg width="0" height="0" style="position:absolute">
       <defs>
         <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#FF8A3D"/>
-          <stop offset="100%" stop-color="#FF5722" stop-opacity="0.6"/>
+          <stop offset="0%" stop-color="#9B8DFF"/>
+          <stop offset="100%" stop-color="#6E5BF5" stop-opacity="0.6"/>
         </linearGradient>
         <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#FF8A3D"/>
-          <stop offset="100%" stop-color="#FF5722"/>
+          <stop offset="0%" stop-color="#9B8DFF"/>
+          <stop offset="100%" stop-color="#6E5BF5"/>
         </linearGradient>
         <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#FF8A3D" stop-opacity="0.5"/>
-          <stop offset="100%" stop-color="#FF5722" stop-opacity="0.05"/>
+          <stop offset="0%" stop-color="#9B8DFF" stop-opacity="0.5"/>
+          <stop offset="100%" stop-color="#6E5BF5" stop-opacity="0.05"/>
         </linearGradient>
       </defs>
     </svg>`;

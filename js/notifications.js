@@ -198,6 +198,29 @@ function checkChallenge() {
 // Loop
 // ============================================================
 
+function checkQuote() {
+  const s = getState();
+  if (!s.notifEnabled) return;
+  if (s.notifQuotes === false) return; // default ON
+  const list = (s.quotes || []);
+  if (list.length === 0) return;
+  const now = new Date();
+  // Fire at 09:00, 13:00, 18:00
+  const targetHours = [9, 13, 18];
+  if (!targetHours.includes(now.getHours())) return;
+  if (now.getMinutes() > 5) return;
+  const key = fireOnceKey('quote', String(now.getHours()));
+  if (firedToday.has(key)) return;
+  firedToday.add(key);
+  const q = list[Math.floor(Math.random() * list.length)];
+  show({
+    title: '💎 ' + (getLang() === 'ar' ? 'تذكير' : 'Reminder'),
+    body: q.text + (q.author ? '\n— ' + q.author : ''),
+    tag: 'quote',
+    data: { url: '#/quotes' }
+  });
+}
+
 function tick() {
   // Reset firedToday at midnight
   const now = new Date();
@@ -208,6 +231,7 @@ function tick() {
   try { checkOverdueDigest(); } catch (e) { console.error(e); }
   try { checkHabitReminder(); } catch (e) { console.error(e); }
   try { checkChallenge(); } catch (e) { console.error(e); }
+  try { checkQuote(); } catch (e) { console.error(e); }
 }
 
 /**

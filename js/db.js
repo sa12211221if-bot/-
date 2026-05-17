@@ -2,7 +2,7 @@
 // v3: adds chat, notifications, challenges, integrations
 
 const DB_NAME = 'designer-os';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORES = [
   // v1
@@ -35,7 +35,12 @@ const STORES = [
   { name: 'notifications', key: 'id', indexes: [['scheduledAt', 'scheduledAt'], ['type', 'type'], ['delivered', 'delivered']] },
   { name: 'challenges',    key: 'id', indexes: [['status', 'status'], ['createdAt', 'createdAt']] },
   { name: 'rewards',       key: 'id', indexes: [['earnedAt', 'earnedAt']] },
-  { name: 'syncLog',       key: 'id', indexes: [['provider', 'provider'], ['createdAt', 'createdAt']] }
+  { name: 'syncLog',       key: 'id', indexes: [['provider', 'provider'], ['createdAt', 'createdAt']] },
+
+  // v4 — finance + quotes
+  { name: 'finance',       key: 'id', indexes: [['type', 'type'], ['date', 'date'], ['category', 'category']] },
+  { name: 'financeGoals',  key: 'id', indexes: [['period', 'period'], ['year', 'year'], ['month', 'month']] },
+  { name: 'quotes',        key: 'id', indexes: [['createdAt', 'createdAt'], ['favorite', 'favorite']] }
 ];
 
 let dbPromise = null;

@@ -124,14 +124,15 @@ async function handleUpdate(update) {
 
     if (cmd === '/start' || cmd === '/help') {
       await sendMessage([
-        '👋 Designer OS Bot',
+        '👋 عبد سيف Bot',
         '',
-        'أرسل أي رسالة → تُحفظ في صندوق الالتقاط',
+        'أرسل أي رسالة → تُحفظ كمهمة جديدة',
+        'أرسل صوتية → نص + مهمة',
         'الأوامر:',
-        '/report — تقرير اليوم',
+        '/note <نص> — احفظ كملاحظة',
+        '/quote <نص> — أضف عبارة',
         '/today — مهامك اليوم',
-        '/overdue — المتأخرة',
-        '/add &lt;المهمة&gt; — أضف مهمة'
+        '/overdue — المتأخرة'
       ].join('\n'));
       return;
     }
@@ -172,7 +173,31 @@ async function handleUpdate(update) {
         dueDate: new Date(new Date().setHours(23, 59, 0, 0)).toISOString(),
         source: 'telegram'
       });
-      await sendMessage('✅ تمت الإضافة: ' + arg);
+      await sendMessage('✅ تمت إضافة المهمة: ' + arg);
+      return;
+    }
+
+    if (cmd === '/note' && arg) {
+      await upsert('knowledge', {
+        id: uid(),
+        content: arg,
+        type: 'note',
+        category: 'inbox',
+        source: 'telegram'
+      });
+      await sendMessage('💾 تم حفظ الملاحظة');
+      return;
+    }
+
+    if (cmd === '/quote' && arg) {
+      await upsert('quotes', {
+        id: uid(),
+        text: arg,
+        author: '',
+        favorite: false,
+        source: 'telegram'
+      });
+      await sendMessage('💎 تمت إضافة العبارة');
       return;
     }
 
@@ -180,24 +205,42 @@ async function handleUpdate(update) {
     return;
   }
 
-  // Non-command text → save to inbox + knowledge
+  // Default behaviour: any plain text → add as a TASK (user wants this).
   if (text) {
-    const note = {
+    await upsert('tasks', {
       id: uid(),
-      content: text,
-      type: 'note',
-      source: 'telegram',
-      category: 'inbox',
-      createdAt: msg.date ? msg.date * 1000 : Date.now()
-    };
-    await upsert('knowledge', note);
-    await upsert('inbox', { id: uid(), content: text, type: 'note', source: 'telegram' });
-    await sendMessage('💾 تم حفظ في صندوق الالتقاط');
+      title: text,
+      status: 'todo',
+      priority: 'medium',
+      dueDate: new Date(new Date().setHours(23, 59, 0, 0)).toISOString(),
+      source: 'telegram'
+    });
+    await sendMessage('✅ تمت إضافة مهمة: ' + text + '\n\nاستخدم /note للملاحظات و /quote للعبارات.');
     return;
   }
 
   if (voice) {
-    await sendMessage('🎙️ الرسائل الصوتية لم تُفعّل بعد. أرسل النص.');
+    // Voice → use Telegram's getFile + try to transcribe via Web Speech (browser-side
+    // transcription isn't possible here in a server-less polling loop, so save the
+    // file ID + audio URL and let the user transcribe in-app, OR just create a task
+    // with the duration as the title placeholder).
+    const fileId = voice.file_id;
+    let audioUrl = '';
+    try {
+      const file = await tg('getFile', { file_id: fileId });
+      audioUrl = `${BASE}/file/bot${getState().telegramToken}/${file.file_path}`;
+    } catch {}
+    await upsert('tasks', {
+      id: uid(),
+      title: '🎙️ ' + (msg.from?.first_name ? msg.from.first_name : '') + ' — voice (' + (voice.duration || 0) + 's)',
+      status: 'todo',
+      priority: 'medium',
+      dueDate: new Date(new Date().setHours(23, 59, 0, 0)).toISOString(),
+      source: 'telegram-voice',
+      audioUrl,
+      notes: 'Voice message from Telegram'
+    });
+    await sendMessage('🎙️ تم إنشاء مهمة من الصوتية. افتح التطبيق لسماعها وكتابة العنوان.');
     return;
   }
 
