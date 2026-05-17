@@ -3,7 +3,7 @@ import { getState, setSetting, subscribe } from './store.js';
 
 const dict = {
   ar: {
-    appName: 'Designer OS',
+    appName: 'عبد سيف',
     tagline: 'نظامك الشخصي لإدارة العمل الإبداعي',
     // Nav
     nav_dashboard: 'الرئيسية',
@@ -624,7 +624,9 @@ const dict = {
     tip_vitals_desc: 'سجّل طاقتك ومزاجك → الـ AI يستخدمها في اقتراحاته',
     tip_install_title: 'ثبّت التطبيق',
     tip_install_desc: 'يشتغل بالكامل أوفلاين على جهازك',
-    appName: 'Designer OS',
+  },
+  en: {
+    appName: 'Abd Saif',
     tagline: 'Your personal management system for creative work',
     nav_dashboard: 'Dashboard',
     nav_clients: 'Clients',
@@ -1093,7 +1095,7 @@ const dict = {
 
 export function t(key, fallback) {
   const lang = getState().lang || 'ar';
-  return (dict[lang] && dict[lang][key]) || (dict.en[key]) || fallback || key;
+  return (dict[lang] && dict[lang][key]) || (dict.en && dict.en[key]) || (dict.ar && dict.ar[key]) || fallback || key;
 }
 
 export function getLang() { return getState().lang || 'ar'; }

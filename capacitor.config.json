@@ -1,7 +1,7 @@
 {
   "appId": "com.abdsaif.app",
   "appName": "عبد سيف",
-  "webDir": ".",
+  "webDir": "www",
   "bundledWebRuntime": false,
   "server": { "androidScheme": "https" },
   "plugins": {

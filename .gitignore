@@ -1,8 +1,27 @@
 node_modules/
+package-lock.json
 .DS_Store
 .vscode/
+.idea/
 *.log
 .env
 .env.local
 dist/
-.idea/
+build/
+out/
+www/
+
+# Capacitor / Android build outputs
+android/
+*.apk
+*.aab
+!android-release.keystore
+
+# Tauri build outputs
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/icons/icon.ico
+src-tauri/icons/icon.icns
+src-tauri/icons/*.png
+*.exe
+*.msi

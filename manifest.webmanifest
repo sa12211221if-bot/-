@@ -1,10 +1,10 @@
 {
-  "name": "Designer OS",
-  "short_name": "DesignerOS",
-  "description": "نظام شخصي متكامل لإدارة العمل الإبداعي للمصممين الفريلانس",
+  "name": "عبد سيف",
+  "short_name": "عبد سيف",
+  "description": "نظام شخصي متكامل لإدارة العمل الإبداعي",
   "start_url": "./index.html",
   "scope": "./",
-  "id": "/designer-os",
+  "id": "/abd-saif",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "any",
@@ -52,14 +52,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Designer OS Dashboard"
+      "label": "عبد سيف Dashboard"
     },
     {
       "src": "./assets/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Designer OS Mobile"
+      "label": "عبد سيف Mobile"
     }
   ],
   "shortcuts": [

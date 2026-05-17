@@ -1,5 +1,5 @@
 {
-  "build": { "beforeDevCommand": "", "beforeBuildCommand": "", "devPath": "../", "distDir": "../" },
+  "build": { "beforeDevCommand": "", "beforeBuildCommand": "", "devPath": "../www", "distDir": "../www" },
   "package": { "productName": "عبد سيف", "version": "1.0.0" },
   "tauri": {
     "allowlist": { "all": false, "shell": { "all": false, "open": true } },
